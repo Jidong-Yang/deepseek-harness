@@ -205,6 +205,7 @@ interface McpContentBlock {
   data?: string
   name?: string
   uri?: string
+  resource?: unknown
 }
 
 /** Async rich projection staged for one exact ToolRuntime execution. */
@@ -546,10 +547,41 @@ function projectContent(
         text.push(`[audio result unsupported: ${block.mimeType ?? 'unknown media type'}; raw audio data remains available to programmatic callers]`)
         break
       case 'resource':
-        text.push('[embedded resource unsupported; raw resource data remains available to programmatic callers]')
+        text.push(embeddedResource(block))
         break
       default:
         text.push(`[unsupported MCP content type: ${block.type}]`)
+    }
+
+    /** Render an inline MCP text resource without changing the canonical block value. */
+    function embeddedResource(block: McpContentBlock): string {
+      const resource = block.resource
+      if (
+        typeof resource !== 'object'
+        || resource === null
+        || Array.isArray(resource)
+        || typeof (resource as Record<string, unknown>).uri !== 'string'
+      ) {
+        return '[embedded resource unavailable: the MCP block is missing its resource URI]'
+      }
+      const fields = resource as Record<string, unknown>
+      const uri = fields.uri as string
+      if (
+        (fields.mimeType !== undefined && typeof fields.mimeType !== 'string')
+        || (fields.text !== undefined && typeof fields.text !== 'string')
+        || (fields.blob !== undefined && typeof fields.blob !== 'string')
+      ) {
+        return `[embedded resource unavailable: ${uri} has malformed content fields]`
+      }
+      const { mimeType, text: textContent, blob } = fields
+      const label = `Embedded resource: ${uri}${
+        mimeType === undefined ? '' : ` (${mimeType})`
+      }`
+      if (textContent !== undefined) return `${label}\n${textContent}`
+      if (blob !== undefined) {
+        return `${label}\n[binary embedded resource unavailable in model context; raw base64 remains available to programmatic callers]`
+      }
+      return `${label}\n[embedded resource unavailable: the MCP resource contains neither text nor blob data]`
     }
   }
   flushText()

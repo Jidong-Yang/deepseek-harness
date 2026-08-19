@@ -946,10 +946,17 @@ describe('tool execution edge cases', () => {
     })
   })
 
-  it('reports unsupported embedded resources without discarding the raw block', async () => {
+  it('projects embedded text resources while preserving their identity', async () => {
     const client = createMockClient(
       [{ name: 'res_tool', inputSchema: { type: 'object' } }],
-      { content: [{ type: 'resource' }] },
+      { content: [{
+        type: 'resource',
+        resource: {
+          uri: 'file:///workspace/source.ts',
+          mimeType: 'text/typescript',
+          text: 'export const value = 1',
+        },
+      }] },
     )
 
     await syncTools(client as never, ctx, defaultOpts, new Map())
@@ -957,7 +964,36 @@ describe('tool execution edge cases', () => {
 
     expect(result.content[0]).toEqual({
       type: 'text',
-      text: '[embedded resource unsupported; raw resource data remains available to programmatic callers]',
+      text: 'Embedded resource: file:///workspace/source.ts (text/typescript)\nexport const value = 1',
+    })
+  })
+
+  it('diagnoses malformed and binary embedded resources explicitly', async () => {
+    const client = createMockClient(
+      [{ name: 'res_tool', inputSchema: { type: 'object' } }],
+      { content: [
+        { type: 'resource' },
+        { type: 'resource', resource: null },
+        { type: 'resource', resource: { uri: 'file:///malformed', text: 42 } },
+        { type: 'resource', resource: { uri: 'file:///binary', blob: 'AQI=' } },
+        { type: 'resource', resource: { uri: 'file:///empty' } },
+      ] },
+    )
+
+    await syncTools(client as never, ctx, defaultOpts, new Map())
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('resource-diagnostics'), name: 'mcp__srv__res_tool', arguments: {} })
+
+    expect(result.content[0]).toEqual({
+      type: 'text',
+      text: [
+        '[embedded resource unavailable: the MCP block is missing its resource URI]',
+        '[embedded resource unavailable: the MCP block is missing its resource URI]',
+        '[embedded resource unavailable: file:///malformed has malformed content fields]',
+        'Embedded resource: file:///binary',
+        '[binary embedded resource unavailable in model context; raw base64 remains available to programmatic callers]',
+        'Embedded resource: file:///empty',
+        '[embedded resource unavailable: the MCP resource contains neither text nor blob data]',
+      ].join('\n'),
     })
   })
 

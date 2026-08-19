@@ -13,8 +13,9 @@ import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
 import type { Config } from './index.ts'
 
 /**
- * The subprocess seam's scrubbed parent env (credential-shaped and stale
- * `DSH_*` names dropped), plus the spec's explicit env. The MCP SDK owns the
+ * The subprocess seam's scrubbed parent env (credential-shaped names, stale
+ * `DSH_*` names, and ambient command-scoped Git config tuples dropped), plus
+ * the spec's explicit env. The MCP SDK owns the
  * actual spawn, so this transport shares the scrub definition rather than the
  * spawn path.
  */
