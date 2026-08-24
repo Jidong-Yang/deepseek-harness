@@ -1,0 +1,4 @@
+interface:
+  display_name: "DSH Copilot Provider Setup"
+  short_description: "Configure the customary local Copilot model provider"
+  default_prompt: "Use $dsh-copilot-provider-setup to enable or refresh the local GitHub Copilot provider in dsh."
