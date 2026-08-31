@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-08-24-local-copilot-provider-setup.md
-2026-08-24-local-copilot-provider-setup.md: a994ab0ca545156317521c5160526579d8d685b1
-2026-08-24-local-copilot-provider-setup.zh.md: 772f294eeba25b53236020c0aeecf9aaa9b2ffb8
+2026-08-24-local-copilot-provider-setup.md: 12c3671559cb6d6a3de0a163f71686e04158111f
+2026-08-24-local-copilot-provider-setup.zh.md: e19fd21b691a201124e38ded509a79c37cee7183

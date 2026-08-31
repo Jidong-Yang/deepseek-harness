@@ -12,9 +12,9 @@ Status: implemented
 
 项目级 [`dsh-copilot-provider-setup`](../../../skills/dsh-copilot-provider-setup/SKILL.md) skill 负责完整 bootstrap 和重复使用的集成流程。它从此 fork 的 checkout 出发，通过 winget 安装缺失的 Bun 和 pnpm，在 provider 不存在时 clone 到约定路径，安装两个仓库的依赖，引导 provider Device Flow 认证，构建 dsh，并启动两个 loopback 服务。它复用有效的既有安装、checkout、认证、build 和进程，绝不为了符合约定而重写现有 worktree。
 
-约定部署使用 provider 仓库 `https://github.com/blackflag0623/copilot-dsh-provider.git`、路由 `copilot-proxy`、显示名称 `GitHub Copilot`、地址 `http://127.0.0.1:4141/v1` 和协议 `openai-responses`。skill 在写配置前读取 provider 当前的 README 和实时 `/v1/models` 响应，保留无关设置，并且只同步 `llm-pi-ai.providers.copilot-proxy`。provider 忽略入站凭据，因此配置使用非敏感的占位鉴权；GitHub 和 Copilot token 绝不进入 dsh settings。
+约定部署使用 provider 仓库 `https://github.com/Jidong-Yang/copilot-dsh-provider.git`。`copilot-proxy` 路由通过 `http://127.0.0.1:4141/responses/v1` 提供 `openai-responses`，`copilot-chat` 则通过 `http://127.0.0.1:4141/chat/v1` 提供 `openai-completions`。skill 在写配置前读取 provider 当前的 README 和两个实时协议专用模型列表，保留无关设置，并且只同步这两个路由。provider 忽略入站凭据，因此配置使用非敏感的占位鉴权；GitHub 和 Copilot token 绝不进入 dsh settings。
 
-provider 的实时目录决定模型成员及其公开元数据。setup 保留已安装 dsh profile schema 能表达的容量和输入模态，不推断 provider 未发布的推理级别。验证覆盖 provider readiness、dsh 实时注册、目录可见性、一次有界 provider 响应，以及两个 loopback listener。
+provider 的实时目录决定模型成员及其公开元数据。setup 保留容量、支持的输入模态和精确的推理级别 wire 拼写。验证覆盖 provider readiness、dsh 实时注册、两个目录、经由每个非空协议路由的有界请求、已公开的图像与推理输入，以及两个 loopback listener。
 
 provider 不进入随产品交付的 profile、package manifest、示例或 snapshot。其未受支持的上游 API 和固定本地 checkout 路径是此 fork 的部署事实，并非每个 DeepSeek Harness 安装都能满足的行为。
 
@@ -26,8 +26,8 @@ provider 不进入随产品交付的 profile、package manifest、示例或 snap
 
 **只在 `copilot-dsh-provider` 文档中保留流程。** 拒绝，因为其 README 说明服务器如何与 dsh 集成，但不定义此 fork 的持久化、刷新、保留和验证规则。
 
-**在 skill 中硬编码当前模型列表。** 拒绝，因为 Copilot 的可用模型和元数据会独立变化。运行中 provider 的 `/v1/models` 响应是该部署的当前来源。
+**在 skill 中硬编码当前模型列表。** 拒绝，因为 Copilot 的可用模型和元数据会独立变化。运行中 provider 的协议专用模型列表是该部署的当前来源。
 
 ## Consequences
 
-checkout 此 fork 后，一条指令就能建立剩余的本地部署，同时不把它设为产品默认。模型增删、容量和模态跟随运行中的 provider，不会作为仓库 prose 逐渐过时。Device Flow 仍由用户按自己的节奏完成，Windows 和 winget 是明确的前置条件；provider 或 dsh 命令发生变化时，需要更新此 skill。
+checkout 此 fork 后，一条指令就能建立剩余的本地部署，同时不把它设为产品默认。模型增删、容量、模态和推理级别跟随运行中的 provider，不会作为仓库 prose 逐渐过时。只能通过 Chat Completions 使用的模型可与 Responses 模型并行使用。Device Flow 仍由用户按自己的节奏完成，Windows 和 winget 是明确的前置条件；provider 或 dsh 命令发生变化时，需要更新此 skill。

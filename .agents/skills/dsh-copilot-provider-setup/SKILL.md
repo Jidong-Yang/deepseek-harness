@@ -13,12 +13,16 @@ Use these values unless the provider's current README or running server explicit
 
 | Setting | Value |
 |---|---|
-| Provider repository | `https://github.com/blackflag0623/copilot-dsh-provider.git` |
+| Provider repository | `https://github.com/Jidong-Yang/copilot-dsh-provider.git` |
 | Source checkout | `C:\copilot-dsh-provider` |
-| Provider route | `copilot-proxy` |
-| Display name | `GitHub Copilot` |
-| Base URL | `http://127.0.0.1:4141/v1` |
-| Protocol | `openai-responses` |
+| Responses route | `copilot-proxy` |
+| Responses display name | `GitHub Copilot` |
+| Responses base URL | `http://127.0.0.1:4141/responses/v1` |
+| Responses protocol | `openai-responses` |
+| Chat route | `copilot-chat` |
+| Chat display name | `GitHub Copilot Chat` |
+| Chat base URL | `http://127.0.0.1:4141/chat/v1` |
+| Chat protocol | `openai-completions` |
 | Placeholder authorization | `Bearer local-copilot-provider` |
 | dsh settings namespace | `llm-pi-ai` |
 | Default dsh settings document | `%USERPROFILE%\.dsh\settings.yaml` |
@@ -42,7 +46,7 @@ Perform these phases in order. Inspect before acting and reuse a valid existing 
 3. If `C:\copilot-dsh-provider` does not exist, clone the conventional repository there:
 
    ```powershell
-   git clone https://github.com/blackflag0623/copilot-dsh-provider.git C:\copilot-dsh-provider
+   git clone https://github.com/Jidong-Yang/copilot-dsh-provider.git C:\copilot-dsh-provider
    ```
 
    If the path exists, verify it is a Git worktree for that repository. Never delete, overwrite, reset, clean, pull, or switch its branch merely to make setup continue.
@@ -73,16 +77,16 @@ Perform these phases in order. Inspect before acting and reuse a valid existing 
 
 ### 3. Bind the live catalog
 
-1. Resolve the active dsh home rather than assuming the default when the process or environment names another one. Preserve every unrelated settings namespace and every field outside `llm-pi-ai.providers.copilot-proxy`.
-2. Fetch `GET http://127.0.0.1:4141/v1/models`. Require a non-empty list with unique, non-empty model ids. Treat this response as the catalog for this deployment; do not retain models that disappeared or invent models, capacities, modalities, or reasoning levels.
-3. Upsert `llm-pi-ai.providers.copilot-proxy` with the conventional identity, endpoint, protocol, and `headers.Authorization` placeholder. Replace only this route's `models` list with the live response, mapping:
+1. Resolve the active dsh home rather than assuming the default when the process or environment names another one. Preserve every unrelated settings namespace and every field outside `llm-pi-ai.providers.copilot-proxy` and `llm-pi-ai.providers.copilot-chat`.
+2. Fetch `GET http://127.0.0.1:4141/responses/v1/models` and `GET http://127.0.0.1:4141/chat/v1/models`. Require each list to contain unique, non-empty model ids. Require at least one model across the two lists. Treat these responses as the catalogs for this deployment; do not retain models that disappeared from their protocol route or invent models, capacities, modalities, or reasoning levels.
+3. Upsert `llm-pi-ai.providers.copilot-proxy` and `llm-pi-ai.providers.copilot-chat` with their conventional identities, endpoints, protocols, and shared `apiKeyEnv` placeholder reference. Store the non-secret placeholder value through the Models UI or credential service when the reference is unresolved. Replace only each route's `models` list with its corresponding live response, mapping:
    - `id` to `id`;
    - `display_name` to `name` when present;
    - `context_window` to `contextWindow` when it is a positive integer;
    - `max_output_tokens` to `maxTokens` when it is a positive integer;
-   - `input` to `input` when it is a non-empty list of dsh-supported modalities.
-4. Do not add `reasoningEfforts` unless an authoritative provider response or provider document declares the exact selectable levels and wire spellings. A model default remains usable without a dsh reasoning selector.
-5. Prefer the live settings mutation API or Models UI when it preserves every catalog field above. When the installed dsh discovery type drops an extension such as `input`, update the settings document structurally instead. Never replace the whole YAML document or hand-edit the managed credential store.
+   - `input` to `input` when it is a non-empty list of dsh-supported modalities;
+   - `reasoning_efforts` to `reasoningEfforts` when it is a non-empty map whose keys are dsh-supported levels and whose values are non-empty wire spellings or `null` for `off`.
+4. Update the settings document structurally because the current dsh discovery type does not preserve `input` or `reasoning_efforts`. Never replace the whole YAML document or hand-edit the managed credential store.
 
 The settings-file provider hot-loads a valid change. Do not restart dsh merely to publish this route.
 
@@ -90,9 +94,9 @@ The settings-file provider hot-loads a valid change. Do not restart dsh merely t
 
 Require all of the following before reporting success:
 
-1. Both provider endpoints still answer, and the model ids in `/v1/models` match the configured route.
-2. The dsh Models page shows `GitHub Copilot`, route `copilot-proxy`, protocol `openai-responses`, the loopback base URL, and the complete configured catalog.
-3. A minimal `POST /v1/responses` with the placeholder authorization completes against one currently listed model. Keep the prompt harmless and the output bound small.
+1. The provider health endpoint and both protocol-specific model endpoints answer, and each configured route's model ids match its live catalog.
+2. The dsh Models page shows both conventional routes, protocols, loopback base URLs, and complete configured catalogs.
+3. A bounded request completes through each non-empty protocol route. When a catalog advertises images or reasoning levels, the request includes a generated small image and one advertised non-`off` level so the live wire integration is exercised without reading user files.
 4. dsh and the provider processes remain listening on their expected loopback ports.
 
 Do not claim that dsh exercised the route when only the provider-direct request ran. The Models page proves live registration and catalog publication; a dsh-created session proves model execution through the harness when the user requests that stronger check.
@@ -106,5 +110,5 @@ Do not claim that dsh exercised the route when only the provider-direct request 
 - **dsh build or startup fails:** report the exact existing command and failure. Do not continue to settings as though the runtime were healthy.
 - **Provider healthy but route absent:** inspect the `llm-pi-ai` namespace rejection and validate the profile against the installed adapter schema. Keep the last good settings section intact.
 - **Models missing capabilities:** compare the raw listing with the installed `LlmDiscoveredModel` and `PiAiModelProfile` types. Preserve supported extensions through structural settings when discovery narrows them.
-- **401 or “provider is not configured”:** verify the placeholder `Authorization` header is present on the route. Do not substitute a GitHub credential.
-- **Stale catalog:** refetch and replace only `copilot-proxy.models`; the catalog never refreshes itself.
+- **401 or “provider is not configured”:** verify that each route's `apiKeyEnv` reference resolves to the non-secret placeholder. Do not substitute a GitHub credential.
+- **Stale catalog:** refetch both protocol-specific listings and replace only the corresponding route's `models`; the catalogs never refresh themselves.
