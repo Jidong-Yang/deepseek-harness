@@ -150,6 +150,8 @@ describe('renderToolsSdk', () => {
     expect(text).toContain('rejects with `ToolCallError`')
     expect(text).toContain('MAY overlap under `Promise.all`')
     expect(text).toContain('lossless JSON')
+    expect(text).toContain('Windows paths with forward slashes (`C:/repo/file`)')
+    expect(text).toContain('plain path such as `C:\\repo\\file` changes escape sequences')
   })
 
   it('names both required call arguments, not just the program', () => {
