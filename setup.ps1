@@ -3,7 +3,10 @@ param(
     [string]$TaskName = "DeepSeek Harness Web",
     [string]$DshHome = $(if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path $HOME ".dsh" }),
     [switch]$SkipCopilotBridge,
-    [switch]$RemoveElevatedTask
+    [Parameter(DontShow)]
+    [switch]$RegisterElevatedTask,
+    [Parameter(DontShow)]
+    [string]$TaskUser
 )
 
 $ErrorActionPreference = "Stop"
@@ -106,6 +109,50 @@ function Stop-DshWebListener {
     Wait-Process -Id $process.ProcessId -Timeout 10 -ErrorAction SilentlyContinue
 }
 
+function Register-DshWebTask {
+    param(
+        [Parameter(Mandatory)]
+        [string]$NodePath,
+        [Parameter(Mandatory)]
+        [string]$Name,
+        [Parameter(Mandatory)]
+        [string]$HomePath,
+        [Parameter(Mandatory)]
+        [string]$User
+    )
+
+    Stop-ScheduledTask -TaskName $Name -ErrorAction SilentlyContinue
+    Stop-DshWebListener
+    $webRunner = Join-Path $projectRoot "scripts\run-windows-web.ts"
+    $action = New-ScheduledTaskAction `
+        -Execute $NodePath `
+        -Argument "--import tsx/esm `"$webRunner`" `"$HomePath`"" `
+        -WorkingDirectory $projectRoot
+    $trigger = New-ScheduledTaskTrigger -AtLogOn -User $User
+    $settings = New-ScheduledTaskSettingsSet `
+        -StartWhenAvailable `
+        -AllowStartIfOnBatteries `
+        -DontStopIfGoingOnBatteries `
+        -ExecutionTimeLimit ([TimeSpan]::Zero) `
+        -RestartCount 999 `
+        -RestartInterval (New-TimeSpan -Minutes 1) `
+        -MultipleInstances IgnoreNew
+    $principal = New-ScheduledTaskPrincipal `
+        -UserId $User `
+        -LogonType Interactive `
+        -RunLevel Highest
+
+    Register-ScheduledTask `
+        -TaskName $Name `
+        -Action $action `
+        -Trigger $trigger `
+        -Settings $settings `
+        -Principal $principal `
+        -Description "Elevated current-user host for the local DeepSeek Harness Web UI." `
+        -Force | Out-Null
+    Start-ScheduledTask -TaskName $Name
+}
+
 $pwsh = Resolve-PowerShell7
 if ($PSVersionTable.PSVersion.Major -lt 7) {
     $arguments = @(
@@ -119,47 +166,32 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
     if ($SkipCopilotBridge) {
         $arguments += "-SkipCopilotBridge"
     }
-    if ($RemoveElevatedTask) {
-        $arguments += "-RemoveElevatedTask"
+    if ($RegisterElevatedTask) {
+        $arguments += @("-RegisterElevatedTask", "-TaskUser", $TaskUser)
     }
     & $pwsh @arguments
     exit $LASTEXITCODE
 }
 
 $isAdministrator = Test-IsAdministrator
-if ($RemoveElevatedTask) {
+$currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+if ($RegisterElevatedTask) {
     if (-not $isAdministrator) {
-        throw "-RemoveElevatedTask requires administrator privileges."
+        throw "The elevated task-registration phase requires administrator privileges."
     }
-    Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-    Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction Stop
+    if ([string]::IsNullOrWhiteSpace($TaskUser)) {
+        throw "The elevated task-registration phase requires the initiating Windows account."
+    }
+    if ($currentUser -ne $TaskUser) {
+        throw "Approve elevation with the initiating Windows account '$TaskUser', not '$currentUser'."
+    }
+    Refresh-Path
+    Register-DshWebTask `
+        -NodePath (Resolve-Node) `
+        -Name $TaskName `
+        -HomePath $DshHome `
+        -User $TaskUser
     exit 0
-}
-
-$existingTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-if (
-    $existingTask `
-    -and $existingTask.Principal.RunLevel -eq "Highest" `
-    -and -not $isAdministrator
-) {
-    Write-Host "Requesting one-time elevation to migrate the existing task to limited privileges..."
-    $arguments = @(
-        "-NoLogo",
-        "-NoProfile",
-        "-ExecutionPolicy", "Bypass",
-        "-File", "`"$PSCommandPath`"",
-        "-TaskName", "`"$TaskName`"",
-        "-RemoveElevatedTask"
-    )
-    $process = Start-Process `
-        -FilePath $pwsh `
-        -ArgumentList $arguments `
-        -Verb RunAs `
-        -Wait `
-        -PassThru
-    if ($process.ExitCode -ne 0) {
-        throw "The elevated legacy-task removal failed with exit code $($process.ExitCode)."
-    }
 }
 
 $winget = Get-Command winget -ErrorAction SilentlyContinue
@@ -214,38 +246,35 @@ try {
         }
     }
 
-    Write-Host "Registering Task Scheduler task '$TaskName'..."
-    Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-    Stop-DshWebListener
-    $webRunner = Join-Path $projectRoot "scripts\run-windows-web.ts"
-    $action = New-ScheduledTaskAction `
-        -Execute $node `
-        -Argument "--import tsx/esm `"$webRunner`" `"$DshHome`"" `
-        -WorkingDirectory $projectRoot
-    $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-    $trigger = New-ScheduledTaskTrigger -AtLogOn -User $identity
-    $settings = New-ScheduledTaskSettingsSet `
-        -StartWhenAvailable `
-        -AllowStartIfOnBatteries `
-        -DontStopIfGoingOnBatteries `
-        -ExecutionTimeLimit ([TimeSpan]::Zero) `
-        -RestartCount 999 `
-        -RestartInterval (New-TimeSpan -Minutes 1) `
-        -MultipleInstances IgnoreNew
-    $principal = New-ScheduledTaskPrincipal `
-        -UserId $identity `
-        -LogonType Interactive `
-        -RunLevel Limited
-
-    Register-ScheduledTask `
-        -TaskName $TaskName `
-        -Action $action `
-        -Trigger $trigger `
-        -Settings $settings `
-        -Principal $principal `
-        -Description "Current-user host for the local DeepSeek Harness Web UI." `
-        -Force | Out-Null
-    Start-ScheduledTask -TaskName $TaskName
+    Write-Host "Registering elevated Task Scheduler task '$TaskName'..."
+    if ($isAdministrator) {
+        Register-DshWebTask `
+            -NodePath $node `
+            -Name $TaskName `
+            -HomePath $DshHome `
+            -User $currentUser
+    } else {
+        Write-Host "Requesting elevation for task registration..."
+        $arguments = @(
+            "-NoLogo",
+            "-NoProfile",
+            "-ExecutionPolicy", "Bypass",
+            "-File", "`"$PSCommandPath`"",
+            "-TaskName", "`"$TaskName`"",
+            "-DshHome", "`"$DshHome`"",
+            "-RegisterElevatedTask",
+            "-TaskUser", "`"$currentUser`""
+        )
+        $process = Start-Process `
+            -FilePath $pwsh `
+            -ArgumentList $arguments `
+            -Verb RunAs `
+            -Wait `
+            -PassThru
+        if ($process.ExitCode -ne 0) {
+            throw "Elevated task registration failed with exit code $($process.ExitCode). Approve UAC with the same Windows account."
+        }
+    }
 
     $deadline = [DateTime]::UtcNow.AddSeconds(180)
     do {

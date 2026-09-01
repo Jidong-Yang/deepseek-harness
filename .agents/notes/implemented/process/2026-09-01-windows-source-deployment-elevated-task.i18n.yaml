@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-09-01-windows-source-deployment-elevated-task.md
+2026-09-01-windows-source-deployment-elevated-task.md: 5d824241c5160b35a75216d1906f9a5101f55e64
+2026-09-01-windows-source-deployment-elevated-task.zh.md: 131613d563bda27bd02e8b0726142c577cde57a1
