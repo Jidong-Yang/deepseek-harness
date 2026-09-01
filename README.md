@@ -40,6 +40,16 @@ pnpm dsh web
 
 `pnpm run build` prepares the repository artifacts. `pnpm dsh web` uses those built artifacts without rebuilding.
 
+### Keep a Windows source deployment running
+
+From an existing Windows checkout, run the idempotent setup:
+
+```powershell
+.\setup.ps1
+```
+
+The script installs or updates pnpm through winget, installs dependencies, builds the checkout, synchronizes the live model catalogs from a ready sibling `C:\DSH\copilot-dsh-provider`, and registers the `DeepSeek Harness Web` Task Scheduler task. The task starts once when the current user signs in, restarts after failures, and runs the same source entry as `pnpm dsh web --no-open` directly under Node so Task Scheduler owns the serving process. Pass `-SkipCopilotBridge` when this deployment does not use that local provider.
+
 ## Community and support
 
 - Submit feedback or bug reports through [GitHub Discussions](https://github.com/deepseek-ai/deepseek-harness/discussions).

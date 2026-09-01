@@ -6,15 +6,15 @@ Status: implemented
 
 ## Problem
 
-此 fork 经常把独立的 `C:\copilot-dsh-provider` checkout 用作本地自定义模型 provider。新的 Windows 开发机原本还需要第二次 clone、两个 package manager、依赖安装、provider Device Flow 认证、两个长期运行的进程、路由配置、模型同步、占位鉴权和验证。每个会话都重新推导这套顺序，容易产生偏差。但该部署依赖本机环境和未公开的 GitHub Copilot 推理端点；如果把它放进每个 agent 的默认项目上下文或 dsh 随产品交付的 profile，就会把本地约定表达成产品要求。
+此 fork 经常把独立的 `C:\DSH\copilot-dsh-provider` checkout 用作本地自定义模型 provider。新的 Windows 开发机原本还需要第二次 clone、两个 package manager、依赖安装、provider Device Flow 认证、两个长期运行的进程、路由配置、模型同步、占位鉴权和验证。每个会话都重新推导这套顺序，容易产生偏差。但该部署依赖本机环境和未公开的 GitHub Copilot 推理端点；如果把它放进每个 agent 的默认项目上下文或 dsh 随产品交付的 profile，就会把本地约定表达成产品要求。
 
 ## Decision
 
-项目级 [`dsh-copilot-provider-setup`](../../../skills/dsh-copilot-provider-setup/SKILL.md) skill 负责完整 bootstrap 和重复使用的集成流程。它从此 fork 的 checkout 出发，通过 winget 安装缺失的 Bun 和 pnpm，在 provider 不存在时 clone 到约定路径，安装两个仓库的依赖，引导 provider Device Flow 认证，构建 dsh，并启动两个 loopback 服务。它复用有效的既有安装、checkout、认证、build 和进程，绝不为了符合约定而重写现有 worktree。
+项目级 [`dsh-copilot-provider-setup`](../../../skills/dsh-copilot-provider-setup/SKILL.md) skill 负责完整的跨仓库 bootstrap 和重复使用的集成流程。它从此 fork 的 checkout 出发，准备 provider 并调用 Harness 的幂等 Windows 部署入口；根 `setup.ps1` 负责 Harness 依赖安装、构建、桥接发布和 Task Scheduler 生命周期（参见[决策](2026-09-01-windows-source-deployment-task.zh.md)）。skill 复用有效的既有安装、checkout、认证、build 和进程，绝不为了符合约定而重写现有 worktree。
 
-约定部署使用 provider 仓库 `https://github.com/Jidong-Yang/copilot-dsh-provider.git`。`copilot-proxy` 路由通过 `http://127.0.0.1:4141/responses/v1` 提供 `openai-responses`，`copilot-chat` 则通过 `http://127.0.0.1:4141/chat/v1` 提供 `openai-completions`。skill 在写配置前读取 provider 当前的 README 和两个实时协议专用模型列表，保留无关设置，并且只同步这两个路由。provider 忽略入站凭据，因此配置使用非敏感的占位鉴权；GitHub 和 Copilot token 绝不进入 dsh settings。
+约定部署使用 provider 仓库 `https://github.com/Jidong-Yang/copilot-dsh-provider.git`。`copilot-proxy` 路由通过 `http://127.0.0.1:4141/responses/v1` 提供 `openai-responses`，`copilot-chat` 则通过 `http://127.0.0.1:4141/chat/v1` 提供 `openai-completions`。skill 在写配置前读取 provider 当前的 README 和两个实时协议专用模型列表，保留无关设置，并且只同步这两个路由。provider 忽略入站凭据，因此配置使用非敏感的占位鉴权；GitHub 和 Copilot token 绝不进入 dsh settings。由于 provider 已执行自身的一次认证恢复，每条路由只允许 Harness 对瞬时故障或空响应重试一次。
 
-provider 的实时目录决定模型成员及其公开元数据。setup 保留容量、支持的输入模态和精确的推理级别 wire 拼写。验证覆盖 provider readiness、dsh 实时注册、两个目录、经由每个非空协议路由的有界请求、已公开的图像与推理输入，以及两个 loopback listener。
+provider 的实时目录决定模型成员及其公开元数据。setup 保留容量、支持的输入模态和精确的推理级别 wire 拼写。诊断流程解释 provider 的安全健康状态：`checking` 等待，`upstream-unavailable` 退避且不启动 Device Flow，`reauth-required` 区分 GitHub 凭据拒绝和 Copilot 访问拒绝。loopback 连接被拒绝时，流程指向 `Copilot DSH Provider` Task Scheduler 任务，而不是模型配置。验证覆盖 provider readiness、dsh 实时注册、两个目录、经由每个非空协议路由的有界请求、已公开的图像与推理输入，以及两个 loopback listener。
 
 provider 不进入随产品交付的 profile、package manifest、示例或 snapshot。其未受支持的上游 API 和固定本地 checkout 路径是此 fork 的部署事实，并非每个 DeepSeek Harness 安装都能满足的行为。
 

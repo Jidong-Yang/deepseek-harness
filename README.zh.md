@@ -44,6 +44,16 @@ pnpm dsh web
 
 `pnpm run build` 会准备仓库产物。`pnpm dsh web` 会直接使用这些已构建产物，不会重新构建。
 
+### 让 Windows 源码部署持续运行
+
+在已有的 Windows checkout 中运行幂等 setup：
+
+```powershell
+.\setup.ps1
+```
+
+该脚本通过 winget 安装或更新 pnpm、安装依赖、构建 checkout、从处于 ready 状态的同级 `C:\DSH\copilot-dsh-provider` 同步实时模型目录，并注册 `DeepSeek Harness Web` Task Scheduler 任务。该任务在当前用户登录时启动一次，失败后自动重启，并直接由 Node 运行与 `pnpm dsh web --no-open` 相同的源码入口，使 Task Scheduler 持有服务进程的生命周期。不使用该本地 provider 的部署可传入 `-SkipCopilotBridge`。
+
 ## 社区与支持
 
 - 通过 [GitHub Discussions](https://github.com/deepseek-ai/deepseek-harness/discussions) 提交反馈或 bug 报告。
