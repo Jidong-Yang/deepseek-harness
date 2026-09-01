@@ -178,7 +178,14 @@ if ($wingetExitCode -notin @(0, $updateNotApplicable)) {
 Refresh-Path
 $node = Resolve-Node
 $pnpm = Resolve-Pnpm
-$pnpmVersion = [version](& $pnpm --version)
+$pnpmVersionText = & $pnpm with current --version
+if ($LASTEXITCODE -ne 0) {
+    throw "Unable to query the installed pnpm version (exit $LASTEXITCODE)."
+}
+$pnpmVersion = $null
+if (-not [version]::TryParse($pnpmVersionText.Trim(), [ref]$pnpmVersion)) {
+    throw "pnpm returned an invalid version: $pnpmVersionText"
+}
 if ($pnpmVersion.Major -ne 11 -or $pnpmVersion.Minor -lt 7) {
     throw "pnpm $pnpmVersion is unsupported; this checkout requires pnpm 11.7 or newer in major version 11."
 }
@@ -187,20 +194,20 @@ Write-Host "Using pnpm: $pnpm ($pnpmVersion)"
 Push-Location $projectRoot
 try {
     Write-Host "Installing project dependencies..."
-    & $pnpm install --frozen-lockfile
+    & $pnpm with current install --frozen-lockfile
     if ($LASTEXITCODE -ne 0) {
         throw "pnpm install failed with exit code $LASTEXITCODE."
     }
 
     Write-Host "Building DeepSeek Harness..."
-    & $pnpm run build
+    & $pnpm with current run build
     if ($LASTEXITCODE -ne 0) {
         throw "pnpm run build failed with exit code $LASTEXITCODE."
     }
 
     if (-not $SkipCopilotBridge) {
         Write-Host "Synchronizing the local Copilot provider catalogs..."
-        & $pnpm exec tsx scripts/configure-local-copilot-provider.ts `
+        & $pnpm with current exec tsx scripts/configure-local-copilot-provider.ts `
             --dsh-home $DshHome
         if ($LASTEXITCODE -ne 0) {
             throw "The local Copilot provider bridge failed with exit code $LASTEXITCODE. Ensure the 'Copilot DSH Provider' task reports ready, or rerun with -SkipCopilotBridge."
