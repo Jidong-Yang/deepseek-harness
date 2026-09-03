@@ -63,11 +63,8 @@ async function connectLoop(ctx: Context, config: Config, signal: AbortSignal): P
 }
 
 async function connectOnce(ctx: Context, config: Config, signal: AbortSignal): Promise<void> {
-  const workspaces = Object.entries(config.workspaces).map(([name, id]) => {
-    const workspace = ctx.workspaceRegistry.get(WorkspaceId(id))
-    if (!workspace) throw new Error(`workspace "${name}" is not registered`)
-    return { name }
-  })
+  const resolved = await resolveWorkspaces(ctx, config.workspaces)
+  const workspaces = [...resolved.keys()].map(name => ({ name }))
   if (!Object.hasOwn(config.workspaces, 'ira-agent-platform')) {
     throw new Error('Provider must expose the ira-agent-platform workspace')
   }
@@ -98,7 +95,7 @@ async function connectOnce(ctx: Context, config: Config, signal: AbortSignal): P
     await new Promise<void>((resolve) => {
       socket.addEventListener('message', (event) => {
         const command = JSON.parse(String(event.data)) as HubFrame
-        void executeOnce(ctx, config, command).then(
+        void executeOnce(ctx, { workspaces: Object.fromEntries(resolved) }, command).then(
           () => socket.send(JSON.stringify({ type: 'dsh.command.result', commandId: command.commandId, ok: true })),
           (error: unknown) => socket.send(JSON.stringify({
             type: 'dsh.command.result', commandId: command.commandId, ok: false,
@@ -110,6 +107,16 @@ async function connectOnce(ctx: Context, config: Config, signal: AbortSignal): P
       socket.addEventListener('error', () => trace('socket.error', { connectorInstanceId }))
     })
   } finally { clearInterval(heartbeat) }
+}
+
+export async function resolveWorkspaces(ctx: Context, configured: Record<string, string>): Promise<Map<string, string>> {
+  const resolved = new Map<string, string>()
+  for (const [name, directory] of Object.entries(configured)) {
+    let workspace = await ctx.workspaceRegistry.resolveByPath(directory)
+    if (!workspace) workspace = await ctx.workspaceRegistry.create(directory)
+    resolved.set(name, workspace.id)
+  }
+  return resolved
 }
 
 export function executeOnce(ctx: Context, config: Pick<Config, 'workspaces'>, command: Command): Promise<void> {

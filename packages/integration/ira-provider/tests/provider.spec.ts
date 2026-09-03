@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import { execute, executeOnce } from '../src/index.ts'
+import { execute, executeOnce, resolveWorkspaces } from '../src/index.ts'
 
 function harness() {
   const steer = vi.fn()
@@ -18,6 +18,18 @@ function harness() {
 }
 
 describe('embedded IRA Provider', () => {
+  it('resolves existing paths and creates missing DSH workspaces', async () => {
+    const existing = { id: 'existing' }
+    const created = { id: 'created' }
+    const ctx = { workspaceRegistry: {
+      resolveByPath: vi.fn(async (path: string) => path === 'C:/existing' ? existing : undefined),
+      create: vi.fn(async () => created),
+    } } as unknown as Context
+    const result = await resolveWorkspaces(ctx, { existing: 'C:/existing', missing: 'C:/missing' })
+    expect(Object.fromEntries(result)).toEqual({ existing: 'existing', missing: 'created' })
+    expect(ctx.workspaceRegistry.create).toHaveBeenCalledWith('C:/missing')
+  })
+
   it('opens one visible DSH session and steers its initial turn', async () => {
     const test = harness()
     await execute(test.ctx, { workspaces: { 'ira-agent-platform': 'workspace-a' } }, {
