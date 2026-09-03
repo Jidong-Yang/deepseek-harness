@@ -48,7 +48,7 @@ From an existing Windows checkout, run the idempotent setup:
 .\setup.ps1
 ```
 
-The script installs or updates pnpm through winget, installs dependencies, builds the checkout, synchronizes the live model catalogs from a ready sibling `C:\DSH\copilot-dsh-provider`, and requests UAC elevation to register the `DeepSeek Harness Web` Task Scheduler task. The task starts with the current user's highest privileges when that user signs in, restarts after failures, and runs the same source entry as `pnpm dsh web --no-open` directly under Node so Task Scheduler owns the serving process. Installation and build commands run before elevation. Because Web tools execute with the task's administrator privileges, protect the launch URL and its token. Pass `-SkipCopilotBridge` when this deployment does not use that local provider.
+The script installs or updates pnpm through winget, installs dependencies, cleans previous build output and safe residue from deleted packages, builds the checkout, synchronizes the live model catalogs from a ready sibling `C:\DSH\copilot-dsh-provider`, and requests UAC elevation to register the `DeepSeek Harness Web` Task Scheduler task. The task starts with the current user's highest privileges when that user signs in, restarts after failures, and runs the same source entry as `pnpm dsh web --no-open` directly under Node so Task Scheduler owns the serving process. Installation and build commands run before elevation. Because Web tools execute with the task's administrator privileges, protect the launch URL and its token. Pass `-SkipCopilotBridge` when this deployment does not use that local provider.
 
 ## Community and support
 

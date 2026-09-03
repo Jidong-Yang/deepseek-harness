@@ -52,7 +52,7 @@ pnpm dsh web
 .\setup.ps1
 ```
 
-该脚本通过 winget 安装或更新 pnpm、安装依赖、构建 checkout、从处于 ready 状态的同级 `C:\DSH\copilot-dsh-provider` 同步实时模型目录，并请求 UAC 提权来注册 `DeepSeek Harness Web` Task Scheduler 任务。该任务在当前用户登录时以该用户的最高权限启动，失败后自动重启，并直接由 Node 运行与 `pnpm dsh web --no-open` 相同的源码入口，使 Task Scheduler 持有服务进程的生命周期。安装和构建命令在提权前运行。由于 Web 工具使用该任务的管理员权限执行，请保护启动 URL 及其 token。不使用该本地 provider 的部署可传入 `-SkipCopilotBridge`。
+该脚本通过 winget 安装或更新 pnpm、安装依赖、清理旧构建产物和已删除 package 的安全残留、构建 checkout、从处于 ready 状态的同级 `C:\DSH\copilot-dsh-provider` 同步实时模型目录，并请求 UAC 提权来注册 `DeepSeek Harness Web` Task Scheduler 任务。该任务在当前用户登录时以该用户的最高权限启动，失败后自动重启，并直接由 Node 运行与 `pnpm dsh web --no-open` 相同的源码入口，使 Task Scheduler 持有服务进程的生命周期。安装和构建命令在提权前运行。由于 Web 工具使用该任务的管理员权限执行，请保护启动 URL 及其 token。不使用该本地 provider 的部署可传入 `-SkipCopilotBridge`。
 
 ## 社区与支持
 

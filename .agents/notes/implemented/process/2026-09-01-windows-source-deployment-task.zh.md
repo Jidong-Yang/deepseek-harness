@@ -10,7 +10,7 @@ Windows 源码部署原本依赖一个手动执行依赖安装、构建和 `pnpm
 
 ## Decision
 
-根 `setup.ps1` 是显式且幂等的 Windows 源码部署入口。它要求 PowerShell 7、winget 和受支持的 Node.js 版本；通过 `winget install -e --id pnpm.pnpm` 安装或更新 pnpm；运行 `pnpm install --frozen-lockfile` 和 `pnpm run build`；并注册当前用户的 `DeepSeek Harness Web` Task Scheduler 任务。该任务在交互式登录时启动，忽略重复启动，没有执行时间限制，并在失败后重启；其注册和执行权限由[提权任务决策](2026-09-01-windows-source-deployment-elevated-task.zh.md)规定。Task Scheduler 通过 `scripts/run-windows-web.ts` 直接执行 Node；该入口固定所选 Harness home，并分派与 `pnpm dsh web --no-open` 相同的源码入口和参数。让 Node 成为任务进程后，停止和重启操作持有服务进程，而非只持有 package manager 父进程。
+根 `setup.ps1` 是显式且幂等的 Windows 源码部署入口。它要求 PowerShell 7、winget 和受支持的 Node.js 版本；通过 `winget install -e --id pnpm.pnpm` 安装或更新 pnpm；运行 `pnpm install --frozen-lockfile`、`pnpm run clean` 和 `pnpm run build`；并注册当前用户的 `DeepSeek Harness Web` Task Scheduler 任务。清理会移除构建产物和已删除 package 的安全残留，避免构建发现过期模块。该任务在交互式登录时启动，忽略重复启动，没有执行时间限制，并在失败后重启；其注册和执行权限由[提权任务决策](2026-09-01-windows-source-deployment-elevated-task.zh.md)规定。Task Scheduler 通过 `scripts/run-windows-web.ts` 直接执行 Node；该入口固定所选 Harness home，并分派与 `pnpm dsh web --no-open` 相同的源码入口和参数。让 Node 成为任务进程后，停止和重启操作持有服务进程，而非只持有 package manager 父进程。
 
 除非传入 `-SkipCopilotBridge`，setup 会调用 `scripts/configure-local-copilot-provider.ts`。桥接要求同级 provider 的安全健康端点报告 `ready`，读取两个实时协议专用模型目录，并且只原子更新 Harness settings 文档中的 `llm-pi-ai.providers.copilot-proxy` 和 `llm-pi-ai.providers.copilot-chat`。它保留无关设置和注释，删除协议目录为空的路由，发布一次有界 Harness 重试，并且只通过计划任务进程环境提供非敏感占位符。GitHub OAuth 和 Copilot session 凭据仍由[本地 provider setup 决策](2026-08-24-local-copilot-provider-setup.zh.md)所述的 provider 进程负责。
 

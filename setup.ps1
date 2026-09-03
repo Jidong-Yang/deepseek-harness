@@ -231,6 +231,12 @@ try {
         throw "pnpm install failed with exit code $LASTEXITCODE."
     }
 
+    Write-Host "Cleaning previous build output..."
+    & $pnpm with current run clean
+    if ($LASTEXITCODE -ne 0) {
+        throw "pnpm run clean failed with exit code $LASTEXITCODE."
+    }
+
     Write-Host "Building DeepSeek Harness..."
     & $pnpm with current run build
     if ($LASTEXITCODE -ne 0) {
