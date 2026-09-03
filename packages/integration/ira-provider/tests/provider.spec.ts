@@ -21,7 +21,7 @@ describe('embedded IRA Provider', () => {
   it('opens one visible DSH session and steers its initial turn', async () => {
     const test = harness()
     await execute(test.ctx, { workspaceIds: ['workspace-a'] }, {
-      type: 'dsh.command', commandId: 'c1', operation: 'session.open', role: 'router',
+      type: 'dsh.command', commandId: 'c1', operation: 'session.open',
       agentPreset: 'ira-intake-router', workspaceId: 'workspace-a', dshSessionId: 'dsh-1', hubMcpUrl: 'https://hub.example/mcp', sessionCapability: 'router-capability', text: 'start',
     })
     expect(test.create).toHaveBeenCalledWith({ sessionId: SessionId('dsh-1'), workspaceId: 'workspace-a', agentPreset: 'ira-intake-router' })
@@ -36,7 +36,7 @@ describe('embedded IRA Provider', () => {
   it('steers the same session without creating another one', async () => {
     const test = harness()
     await execute(test.ctx, { workspaceIds: ['workspace-a'] }, {
-      type: 'dsh.command', commandId: 'c2', operation: 'session.steer', role: 'owner',
+      type: 'dsh.command', commandId: 'c2', operation: 'session.steer',
       agentPreset: 'ira-devloop', workspaceId: 'workspace-a', dshSessionId: 'dsh-1', hubMcpUrl: 'https://hub.example/mcp', sessionCapability: 'owner-capability', text: 'change direction',
     })
     expect(test.create).not.toHaveBeenCalled()
@@ -48,7 +48,7 @@ describe('embedded IRA Provider', () => {
   it('joins and remembers duplicate command IDs', async () => {
     const test = harness()
     const command = {
-      type: 'dsh.command' as const, commandId: `duplicate-${Date.now()}`, operation: 'session.open' as const, role: 'owner' as const,
+      type: 'dsh.command' as const, commandId: `duplicate-${Date.now()}`, operation: 'session.open' as const,
       agentPreset: 'ira-devloop' as const, workspaceId: 'workspace-a', dshSessionId: 'dedup-session',
       hubMcpUrl: 'https://hub.example/mcp', sessionCapability: 'owner-capability', text: 'once',
     }
@@ -61,7 +61,7 @@ describe('embedded IRA Provider', () => {
   it('rejects workspaces outside the configured allowlist', async () => {
     const test = harness()
     await expect(execute(test.ctx, { workspaceIds: ['workspace-a'] }, {
-      type: 'dsh.command', commandId: 'c3', operation: 'session.open', role: 'owner',
+      type: 'dsh.command', commandId: 'c3', operation: 'session.open',
       agentPreset: 'ira-devloop', workspaceId: 'workspace-b', dshSessionId: 'dsh-2', hubMcpUrl: 'https://hub.example/mcp', sessionCapability: 'owner-capability', text: 'no',
     })).rejects.toThrow('workspace is not allowed')
     expect(test.create).not.toHaveBeenCalled()

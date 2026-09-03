@@ -32,7 +32,6 @@ type Command = {
   type: 'dsh.command'
   commandId: string
   operation: 'session.open' | 'session.steer' | 'session.cancel'
-  role: 'router' | 'owner'
   agentPreset: 'ira-intake-router' | 'ira-devloop' | 'ira-supervisor'
   workspaceId: string
   dshSessionId: string
@@ -80,7 +79,7 @@ async function connectOnce(ctx: Context, config: Config, signal: AbortSignal): P
   await opened(socket)
   socket.send(JSON.stringify({
     type: 'dsh.provider.hello', providerId: config.providerId, connectorInstanceId,
-    catalog: { workspaces, maxSessions: Number.MAX_SAFE_INTEGER },
+    catalog: { workspaces },
   }))
   const heartbeat = setInterval(() => {
     if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({
@@ -149,7 +148,7 @@ function installHubTools(ctx: Context, command: Command): void {
     return JSON.parse(JSON.stringify(result.value ?? {})) as JsonValue
   }
   const output = { schema: { type: 'json' as const }, render: (_args: unknown, value: unknown) => [{ type: 'text' as const, text: JSON.stringify(value) }] }
-  if (command.role === 'router') {
+  if (command.agentPreset === 'ira-intake-router') {
     ctx.tools.register(defineTool({
       name: 'ira_route', description: 'Route this new Teams post exactly once.',
       parameters: {
