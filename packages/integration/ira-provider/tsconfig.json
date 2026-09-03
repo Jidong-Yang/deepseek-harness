@@ -11,6 +11,8 @@
     { "path": "../../api/session-controller/tsconfig.host.json" },
     { "path": "../../llm/llm" },
     { "path": "../../core/session" },
+    { "path": "../../core/tools" },
+    { "path": "../../util/values" },
     { "path": "../../workspace/workspace" }
   ]
 }

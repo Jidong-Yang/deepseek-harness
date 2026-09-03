@@ -4,6 +4,9 @@ import type {} from '@deepseek-ai/dsh-api-session-controller'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { WorkspaceId } from '@deepseek-ai/dsh-workspace'
+import { defineTool } from '@deepseek-ai/dsh-tools'
+import type {} from '@deepseek-ai/dsh-tools'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import z from '@deepseek-ai/schemastery'
 
 export const name = 'ira-provider'
@@ -29,9 +32,11 @@ type Command = {
   commandId: string
   operation: 'session.open' | 'session.steer' | 'session.cancel'
   role: 'router' | 'owner'
-  agentPreset: 'ira-intake-router' | 'ira-devloop'
+  agentPreset: 'ira-intake-router' | 'ira-devloop' | 'ira-supervisor'
   workspaceId: string
   dshSessionId: string
+  hubMcpUrl: string
+  sessionCapability: string
   text?: string
 }
 type HubFrame = Command
@@ -106,12 +111,63 @@ export async function execute(ctx: Context, config: Pick<Config, 'workspaceIds'>
   }
   const resolved = await ctx.sessionController.resolveAgent(sessionId)
   if ('error' in resolved) throw resolved.error
+  if (command.operation === 'session.open') installHubTools(resolved.agent.ctx, command)
   if (command.operation === 'session.cancel') {
     resolved.agent.cancel({ kind: 'user' }, { keepInbox: true })
     return
   }
   if (!command.text) throw new Error('command text is required')
-  resolved.agent.steer(createUserMessage({ content: [{ type: 'text', text: command.text }], source: { kind: 'user' } }))
+  const text = command.operation === 'session.open'
+    ? initialEnvelope(command)
+    : command.text
+  resolved.agent.steer(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }))
+}
+
+function installHubTools(ctx: Context, command: Command): void {
+  const call = async (method: string, body: Record<string, unknown>) => {
+    const response = await fetch(command.hubMcpUrl, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-ira-session-capability': command.sessionCapability },
+      body: JSON.stringify({ method, ...body }),
+    })
+    const result = await response.json() as { ok: boolean; value?: unknown; error?: string }
+    if (!response.ok || !result.ok) throw new Error(result.error ?? `Hub returned HTTP ${response.status}`)
+    return JSON.parse(JSON.stringify(result.value ?? {})) as JsonValue
+  }
+  const output = { schema: { type: 'json' as const }, render: (_args: unknown, value: unknown) => [{ type: 'text' as const, text: JSON.stringify(value) }] }
+  if (command.role === 'router') {
+    ctx.tools.register(defineTool({
+      name: 'ira_route', description: 'Route this new Teams post exactly once.',
+      parameters: {
+        mode: { type: 'string', required: true, enum: ['direct', 'supervisor', 'schedule'] },
+        providerId: { type: 'string' }, workspaceId: { type: 'string' }, objective: { type: 'string' },
+        cadence: { type: 'string' }, prompt: { type: 'string' },
+      }, output, execute: args => call('route', args),
+    }))
+    return
+  }
+  ctx.tools.register(defineTool({ name: 'ira_context', description: 'Read this Teams root binding.', parameters: {}, output, execute: () => call('context', {}) }))
+  for (const kind of ['progress', 'blocker', 'complete'] as const) {
+    ctx.tools.register(defineTool({
+      name: `ira_${kind}`, description: `Publish a Human-relevant ${kind} to the Teams thread.`,
+      parameters: { text: { type: 'string', required: true } }, output, execute: args => call(kind, args),
+    }))
+  }
+}
+
+function initialEnvelope(command: Command): string {
+  const authority = command.role === 'router'
+    ? 'Call the Hub route method exactly once. Valid modes are direct, supervisor, or schedule.'
+    : 'Use Hub context, progress, blocker, and complete. Publish only notable progress or Human blockers.'
+  return [
+    command.text,
+    '',
+    '<ira-hub>',
+    `URL: ${command.hubMcpUrl}`,
+    `Session-Capability: ${command.sessionCapability}`,
+    `Authority: ${authority}`,
+    '</ira-hub>',
+  ].join('\n')
 }
 
 function opened(socket: WebSocket): Promise<void> {
