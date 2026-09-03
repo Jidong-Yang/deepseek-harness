@@ -175,7 +175,15 @@ function installHubTools(ctx: Context, command: Command): void {
         mode: { type: 'string', required: true, enum: ['direct', 'supervisor', 'schedule'] },
         providerId: { type: 'string' }, workspace: { type: 'string' }, objective: { type: 'string' },
         cadence: { type: 'string' }, prompt: { type: 'string' },
-      }, output, execute: args => call('route', args),
+      }, output, execute: (args) => {
+        trace('route.args', {
+          keys: Object.keys(args).sort(),
+          objectivePresent: Object.hasOwn(args, 'objective'),
+          objectiveType: typeof args.objective,
+          objectiveLength: typeof args.objective === 'string' ? args.objective.length : undefined,
+        })
+        return call('route', args)
+      },
     }))
     return
   }
