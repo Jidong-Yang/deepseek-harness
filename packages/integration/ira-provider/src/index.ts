@@ -28,6 +28,8 @@ type Command = {
   type: 'dsh.command'
   commandId: string
   operation: 'session.open' | 'session.steer' | 'session.cancel'
+  role: 'router' | 'owner'
+  agentPreset: 'ira-intake-router' | 'ira-devloop'
   workspaceId: string
   dshSessionId: string
   text?: string
@@ -98,7 +100,9 @@ export async function execute(ctx: Context, config: Pick<Config, 'workspaceIds'>
   if (!workspace) throw new Error('workspace is not registered')
   const sessionId = SessionId(command.dshSessionId)
   if (command.operation === 'session.open') {
-    await ctx.sessionController.create({ sessionId, workspaceId: workspace.id })
+    await ctx.sessionController.create({
+      sessionId, workspaceId: workspace.id, agentPreset: command.agentPreset,
+    })
   }
   const resolved = await ctx.sessionController.resolveAgent(sessionId)
   if ('error' in resolved) throw resolved.error
