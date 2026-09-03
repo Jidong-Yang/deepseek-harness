@@ -40,6 +40,12 @@
     "@deepseek-ai/dsh-util-values": "workspace:^",
     "@deepseek-ai/dsh-workspace": "workspace:^",
     "vitest": "^4.1.8",
-    "@types/ws": "^8.18.1"
+    "@types/ws": "^8.18.1",
+    "tsdown": "^0.22.2"
+  },
+  "scripts": {
+    "build": "tsc -b tsconfig.json && tsdown --config tsdown.config.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run tests/provider.spec.ts"
   }
 }
