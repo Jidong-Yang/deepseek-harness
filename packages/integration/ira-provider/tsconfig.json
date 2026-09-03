@@ -1,0 +1,16 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types"
+  },
+  "include": ["src"],
+  "references": [
+    { "path": "../../../vendor/cordis" },
+    { "path": "../../../vendor/schemastery" },
+    { "path": "../../api/session-controller/tsconfig.host.json" },
+    { "path": "../../llm/llm" },
+    { "path": "../../core/session" },
+    { "path": "../../workspace/workspace" }
+  ]
+}
