@@ -8,6 +8,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-tools'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import z from '@deepseek-ai/schemastery'
+import WebSocket from 'ws'
 
 export const name = 'ira-provider'
 export const inject = ['sessionController', 'workspaceRegistry']
@@ -41,6 +42,9 @@ type Command = {
 }
 type HubFrame = Command
 
+const completedCommands = new Set<string>()
+const runningCommands = new Map<string, Promise<void>>()
+
 export function apply(ctx: Context, config: Config): void {
   const abort = new AbortController()
   ctx.effect(() => {
@@ -65,10 +69,12 @@ async function connectOnce(ctx: Context, config: Config, signal: AbortSignal): P
     if (!workspace) throw new Error(`workspace "${id}" is not registered`)
     return { workspaceId: id, cwd: workspace.path }
   })
-  const url = new URL(config.hubUrl)
-  url.searchParams.set('providerId', config.providerId)
-  url.searchParams.set('token', config.token)
-  const socket = new WebSocket(url)
+  const socket = new WebSocket(config.hubUrl, {
+    headers: {
+      authorization: `Bearer ${config.token}`,
+      'x-ira-provider-id': config.providerId,
+    },
+  })
   const connectorInstanceId = randomUUID()
   signal.addEventListener('abort', () => socket.close(), { once: true })
   await opened(socket)
@@ -86,7 +92,7 @@ async function connectOnce(ctx: Context, config: Config, signal: AbortSignal): P
     await new Promise<void>((resolve) => {
       socket.addEventListener('message', (event) => {
         const command = JSON.parse(String(event.data)) as HubFrame
-        void execute(ctx, config, command).then(
+        void executeOnce(ctx, config, command).then(
           () => socket.send(JSON.stringify({ type: 'dsh.command.result', commandId: command.commandId, ok: true })),
           (error: unknown) => socket.send(JSON.stringify({
             type: 'dsh.command.result', commandId: command.commandId, ok: false,
@@ -97,6 +103,17 @@ async function connectOnce(ctx: Context, config: Config, signal: AbortSignal): P
       socket.addEventListener('close', () => resolve(), { once: true })
     })
   } finally { clearInterval(heartbeat) }
+}
+
+export function executeOnce(ctx: Context, config: Pick<Config, 'workspaceIds'>, command: Command): Promise<void> {
+  if (completedCommands.has(command.commandId)) return Promise.resolve()
+  let running = runningCommands.get(command.commandId)
+  if (!running) {
+    running = execute(ctx, config, command).then(() => { completedCommands.add(command.commandId) })
+      .finally(() => { runningCommands.delete(command.commandId) })
+    runningCommands.set(command.commandId, running)
+  }
+  return running
 }
 
 export async function execute(ctx: Context, config: Pick<Config, 'workspaceIds'>, command: Command): Promise<void> {
@@ -117,10 +134,7 @@ export async function execute(ctx: Context, config: Pick<Config, 'workspaceIds'>
     return
   }
   if (!command.text) throw new Error('command text is required')
-  const text = command.operation === 'session.open'
-    ? initialEnvelope(command)
-    : command.text
-  resolved.agent.steer(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }))
+  resolved.agent.steer(createUserMessage({ content: [{ type: 'text', text: command.text }], source: { kind: 'user' } }))
 }
 
 function installHubTools(ctx: Context, command: Command): void {
@@ -155,20 +169,6 @@ function installHubTools(ctx: Context, command: Command): void {
   }
 }
 
-function initialEnvelope(command: Command): string {
-  const authority = command.role === 'router'
-    ? 'Call the Hub route method exactly once. Valid modes are direct, supervisor, or schedule.'
-    : 'Use Hub context, progress, blocker, and complete. Publish only notable progress or Human blockers.'
-  return [
-    command.text,
-    '',
-    '<ira-hub>',
-    `URL: ${command.hubMcpUrl}`,
-    `Session-Capability: ${command.sessionCapability}`,
-    `Authority: ${authority}`,
-    '</ira-hub>',
-  ].join('\n')
-}
 
 function opened(socket: WebSocket): Promise<void> {
   return new Promise((resolve, reject) => {
