@@ -46,6 +46,6 @@
   "scripts": {
     "build": "tsc -b tsconfig.json && tsdown --config tsdown.config.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "vitest run tests/provider.spec.ts"
+    "test": "vitest run --root ../../.. packages/integration/ira-provider/tests/provider.spec.ts"
   }
 }
