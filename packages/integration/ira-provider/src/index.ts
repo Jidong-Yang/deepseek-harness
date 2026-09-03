@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-api-session-controller'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
@@ -77,14 +77,18 @@ async function connectOnce(ctx: Context, config: Config, signal: AbortSignal): P
   const connectorInstanceId = randomUUID()
   signal.addEventListener('abort', () => socket.close(), { once: true })
   await opened(socket)
+  trace('socket.open', { connectorInstanceId, providerId: config.providerId })
   socket.send(JSON.stringify({
     type: 'dsh.provider.hello', providerId: config.providerId, connectorInstanceId,
     catalog: { workspaces },
   }))
+  let heartbeatSequence = 0
   const heartbeat = setInterval(() => {
-    if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({
-      type: 'dsh.provider.heartbeat', providerId: config.providerId, connectorInstanceId, observedAt: new Date().toISOString(),
-    }))
+    if (socket.readyState === WebSocket.OPEN) {
+      heartbeatSequence += 1
+      socket.send(JSON.stringify({ type: 'dsh.provider.heartbeat', providerId: config.providerId, connectorInstanceId, sequence: heartbeatSequence, observedAt: new Date().toISOString() }))
+      if (heartbeatSequence % 4 === 0) trace('heartbeat.sent', { connectorInstanceId, sequence: heartbeatSequence })
+    }
   }, 15_000)
   heartbeat.unref()
   try {
@@ -99,7 +103,8 @@ async function connectOnce(ctx: Context, config: Config, signal: AbortSignal): P
           })),
         )
       })
-      socket.addEventListener('close', () => resolve(), { once: true })
+      socket.addEventListener('close', (event) => { trace('socket.close', { connectorInstanceId, code: event.code, reason: event.reason }); resolve() }, { once: true })
+      socket.addEventListener('error', () => trace('socket.error', { connectorInstanceId }))
     })
   } finally { clearInterval(heartbeat) }
 }
@@ -138,12 +143,15 @@ export async function execute(ctx: Context, config: Pick<Config, 'workspaceIds'>
 
 function installHubTools(ctx: Context, command: Command): void {
   const call = async (method: string, body: Record<string, unknown>) => {
+    const requestId = `tool-${command.commandId}-${method}-${Date.now()}`
+    trace('tool.request', { requestId, commandId: command.commandId, method, sessionId: command.dshSessionId, capabilityHash: shortHash(command.sessionCapability) })
     const response = await fetch(command.hubMcpUrl, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-ira-session-capability': command.sessionCapability },
+      headers: { 'content-type': 'application/json', 'x-ira-session-capability': command.sessionCapability, 'x-ira-request-id': requestId },
       body: JSON.stringify({ method, ...body }),
     })
     const result = await response.json() as { ok: boolean; value?: unknown; error?: string }
+    trace('tool.response', { requestId, commandId: command.commandId, method, status: response.status, ok: response.ok && result.ok })
     if (!response.ok || !result.ok) throw new Error(result.error ?? `Hub returned HTTP ${response.status}`)
     return JSON.parse(JSON.stringify(result.value ?? {})) as JsonValue
   }
@@ -168,6 +176,9 @@ function installHubTools(ctx: Context, command: Command): void {
   }
 }
 
+
+function shortHash(value: string): string { return createHash('sha256').update(value).digest('hex').slice(0, 12) }
+function trace(event: string, fields: Record<string, unknown>): void { console.log(JSON.stringify({ component: 'ira-provider', event, pid: process.pid, at: new Date().toISOString(), ...fields })) }
 
 function opened(socket: WebSocket): Promise<void> {
   return new Promise((resolve, reject) => {
