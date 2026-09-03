@@ -17,14 +17,14 @@ export interface Config {
   hubUrl: string
   providerId: string
   token: string
-  workspaceIds: string[]
+  workspaces: Record<string, string>
   reconnectMs?: number
 }
 export const Config: z<Config> = z.object({
   hubUrl: z.string().required(),
   providerId: z.string().required(),
   token: z.string().required(),
-  workspaceIds: z.array(z.string()).required(),
+  workspaces: z.dict(z.string()).required(),
   reconnectMs: z.number().step(1).min(100).max(60_000).default(1_000),
 })
 
@@ -33,7 +33,7 @@ type Command = {
   commandId: string
   operation: 'session.open' | 'session.steer' | 'session.cancel'
   agentPreset: 'ira-intake-router' | 'ira-devloop' | 'ira-supervisor'
-  workspaceId: string
+  workspace: string
   dshSessionId: string
   hubMcpUrl: string
   sessionCapability: string
@@ -63,11 +63,14 @@ async function connectLoop(ctx: Context, config: Config, signal: AbortSignal): P
 }
 
 async function connectOnce(ctx: Context, config: Config, signal: AbortSignal): Promise<void> {
-  const workspaces = config.workspaceIds.map((id) => {
+  const workspaces = Object.entries(config.workspaces).map(([name, id]) => {
     const workspace = ctx.workspaceRegistry.get(WorkspaceId(id))
-    if (!workspace) throw new Error(`workspace "${id}" is not registered`)
-    return { workspaceId: id, cwd: workspace.path }
+    if (!workspace) throw new Error(`workspace "${name}" is not registered`)
+    return { name }
   })
+  if (!Object.hasOwn(config.workspaces, 'ira-agent-platform')) {
+    throw new Error('Provider must expose the ira-agent-platform workspace')
+  }
   const socket = new WebSocket(config.hubUrl, {
     headers: {
       authorization: `Bearer ${config.token}`,
@@ -109,7 +112,7 @@ async function connectOnce(ctx: Context, config: Config, signal: AbortSignal): P
   } finally { clearInterval(heartbeat) }
 }
 
-export function executeOnce(ctx: Context, config: Pick<Config, 'workspaceIds'>, command: Command): Promise<void> {
+export function executeOnce(ctx: Context, config: Pick<Config, 'workspaces'>, command: Command): Promise<void> {
   if (completedCommands.has(command.commandId)) return Promise.resolve()
   let running = runningCommands.get(command.commandId)
   if (!running) {
@@ -120,9 +123,10 @@ export function executeOnce(ctx: Context, config: Pick<Config, 'workspaceIds'>, 
   return running
 }
 
-export async function execute(ctx: Context, config: Pick<Config, 'workspaceIds'>, command: Command): Promise<void> {
-  if (!config.workspaceIds.includes(command.workspaceId)) throw new Error('workspace is not allowed')
-  const workspace = ctx.workspaceRegistry.get(WorkspaceId(command.workspaceId))
+export async function execute(ctx: Context, config: Pick<Config, 'workspaces'>, command: Command): Promise<void> {
+  const workspaceId = config.workspaces[command.workspace]
+  if (!workspaceId) throw new Error('workspace is not exposed')
+  const workspace = ctx.workspaceRegistry.get(WorkspaceId(workspaceId))
   if (!workspace) throw new Error('workspace is not registered')
   const sessionId = SessionId(command.dshSessionId)
   if (command.operation === 'session.open') {
@@ -157,11 +161,12 @@ function installHubTools(ctx: Context, command: Command): void {
   }
   const output = { schema: { type: 'json' as const }, render: (_args: unknown, value: unknown) => [{ type: 'text' as const, text: JSON.stringify(value) }] }
   if (command.agentPreset === 'ira-intake-router') {
+    ctx.tools.register(defineTool({ name: 'ira_providers', description: 'List online DSH Providers and their exposed workspace names.', parameters: {}, output, execute: () => call('providers', {}) }))
     ctx.tools.register(defineTool({
       name: 'ira_route', description: 'Route this new Teams post exactly once.',
       parameters: {
         mode: { type: 'string', required: true, enum: ['direct', 'supervisor', 'schedule'] },
-        providerId: { type: 'string' }, workspaceId: { type: 'string' }, objective: { type: 'string' },
+        providerId: { type: 'string' }, workspace: { type: 'string' }, objective: { type: 'string' },
         cadence: { type: 'string' }, prompt: { type: 'string' },
       }, output, execute: args => call('route', args),
     }))

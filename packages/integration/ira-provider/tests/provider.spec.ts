@@ -20,24 +20,24 @@ function harness() {
 describe('embedded IRA Provider', () => {
   it('opens one visible DSH session and steers its initial turn', async () => {
     const test = harness()
-    await execute(test.ctx, { workspaceIds: ['workspace-a'] }, {
+    await execute(test.ctx, { workspaces: { 'ira-agent-platform': 'workspace-a' } }, {
       type: 'dsh.command', commandId: 'c1', operation: 'session.open',
-      agentPreset: 'ira-intake-router', workspaceId: 'workspace-a', dshSessionId: 'dsh-1', hubMcpUrl: 'https://hub.example/mcp', sessionCapability: 'router-capability', text: 'start',
+      agentPreset: 'ira-intake-router', workspace: 'ira-agent-platform', dshSessionId: 'dsh-1', hubMcpUrl: 'https://hub.example/mcp', sessionCapability: 'router-capability', text: 'start',
     })
     expect(test.create).toHaveBeenCalledWith({ sessionId: SessionId('dsh-1'), workspaceId: 'workspace-a', agentPreset: 'ira-intake-router' })
     expect(test.steer).toHaveBeenCalledOnce()
     expect(test.steer.mock.calls[0]?.[0].content).toEqual([{ type: 'text', text: 'start' }])
     expect(JSON.stringify(test.steer.mock.calls[0]?.[0])).not.toContain('router-capability')
     expect(JSON.stringify(test.steer.mock.calls[0]?.[0])).not.toContain('hub.example')
-    expect(test.register).toHaveBeenCalledOnce()
-    expect(test.register.mock.calls[0]?.[0].name).toBe('ira_route')
+    expect(test.register).toHaveBeenCalledTimes(2)
+    expect(test.register.mock.calls.map(call => call[0].name)).toEqual(['ira_providers', 'ira_route'])
   })
 
   it('steers the same session without creating another one', async () => {
     const test = harness()
-    await execute(test.ctx, { workspaceIds: ['workspace-a'] }, {
+    await execute(test.ctx, { workspaces: { 'ira-agent-platform': 'workspace-a' } }, {
       type: 'dsh.command', commandId: 'c2', operation: 'session.steer',
-      agentPreset: 'ira-devloop', workspaceId: 'workspace-a', dshSessionId: 'dsh-1', hubMcpUrl: 'https://hub.example/mcp', sessionCapability: 'owner-capability', text: 'change direction',
+      agentPreset: 'ira-devloop', workspace: 'ira-agent-platform', dshSessionId: 'dsh-1', hubMcpUrl: 'https://hub.example/mcp', sessionCapability: 'owner-capability', text: 'change direction',
     })
     expect(test.create).not.toHaveBeenCalled()
     expect(test.resolveAgent).toHaveBeenCalledWith(SessionId('dsh-1'))
@@ -49,21 +49,21 @@ describe('embedded IRA Provider', () => {
     const test = harness()
     const command = {
       type: 'dsh.command' as const, commandId: `duplicate-${Date.now()}`, operation: 'session.open' as const,
-      agentPreset: 'ira-devloop' as const, workspaceId: 'workspace-a', dshSessionId: 'dedup-session',
+      agentPreset: 'ira-devloop' as const, workspace: 'ira-agent-platform', dshSessionId: 'dedup-session',
       hubMcpUrl: 'https://hub.example/mcp', sessionCapability: 'owner-capability', text: 'once',
     }
-    await Promise.all([executeOnce(test.ctx, { workspaceIds: ['workspace-a'] }, command), executeOnce(test.ctx, { workspaceIds: ['workspace-a'] }, command)])
-    await executeOnce(test.ctx, { workspaceIds: ['workspace-a'] }, command)
+    await Promise.all([executeOnce(test.ctx, { workspaces: { 'ira-agent-platform': 'workspace-a' } }, command), executeOnce(test.ctx, { workspaces: { 'ira-agent-platform': 'workspace-a' } }, command)])
+    await executeOnce(test.ctx, { workspaces: { 'ira-agent-platform': 'workspace-a' } }, command)
     expect(test.create).toHaveBeenCalledOnce()
     expect(test.steer).toHaveBeenCalledOnce()
   })
 
-  it('rejects workspaces outside the configured allowlist', async () => {
+  it('rejects workspaces outside the configured mapping', async () => {
     const test = harness()
-    await expect(execute(test.ctx, { workspaceIds: ['workspace-a'] }, {
+    await expect(execute(test.ctx, { workspaces: { 'ira-agent-platform': 'workspace-a' } }, {
       type: 'dsh.command', commandId: 'c3', operation: 'session.open',
-      agentPreset: 'ira-devloop', workspaceId: 'workspace-b', dshSessionId: 'dsh-2', hubMcpUrl: 'https://hub.example/mcp', sessionCapability: 'owner-capability', text: 'no',
-    })).rejects.toThrow('workspace is not allowed')
+      agentPreset: 'ira-devloop', workspace: 'missing', dshSessionId: 'dsh-2', hubMcpUrl: 'https://hub.example/mcp', sessionCapability: 'owner-capability', text: 'no',
+    })).rejects.toThrow('workspace is not exposed')
     expect(test.create).not.toHaveBeenCalled()
   })
 })
