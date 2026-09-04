@@ -32,7 +32,7 @@ type Command = {
   type: 'dsh.command'
   commandId: string
   operation: 'session.open' | 'session.steer' | 'session.cancel'
-  agentPreset: 'ira-intake-router' | 'ira-devloop' | 'ira-supervisor'
+  agentPreset: 'ira-intake-router' | 'ira-devloop' | 'ira-supervisor' | 'ira-schedule-manager'
   workspace: string
   dshSessionId: string
   hubMcpUrl: string
@@ -182,6 +182,13 @@ function installHubTools(ctx: Context, command: Command): void {
         return call('route', args)
       },
     }))
+    return
+  }
+  if (command.agentPreset === 'ira-schedule-manager') {
+    ctx.tools.register(defineTool({ name: 'ira_schedule_context', description: 'Read the schedule bound to this management thread.', parameters: {}, output, execute: () => call('schedule.context', {}) }))
+    ctx.tools.register(defineTool({ name: 'ira_schedule_create', description: 'Create this schedule definition.', parameters: { title: { type: 'string', required: true }, prompt: { type: 'string', required: true }, cadence: { type: 'string', required: true }, timeZone: { type: 'string' } }, output, execute: args => call('schedule.create', args) }))
+    ctx.tools.register(defineTool({ name: 'ira_schedule_update', description: 'Update future occurrences only.', parameters: { expectedRevision: { type: 'number', required: true }, title: { type: 'string' }, prompt: { type: 'string' }, cadence: { type: 'string' }, timeZone: { type: 'string' } }, output, execute: args => call('schedule.update', args) }))
+    for (const operation of ['pause', 'resume', 'delete', 'restore'] as const) ctx.tools.register(defineTool({ name: `ira_schedule_${operation}`, description: `${operation} this schedule.`, parameters: { expectedRevision: { type: 'number', required: true } }, output, execute: args => call(`schedule.${operation}`, args) }))
     return
   }
   ctx.tools.register(defineTool({ name: 'ira_context', description: 'Read this Teams root binding.', parameters: {}, output, execute: () => call('context', {}) }))
