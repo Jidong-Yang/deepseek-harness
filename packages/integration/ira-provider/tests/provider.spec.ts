@@ -9,14 +9,15 @@ function harness() {
   const installed = new Map<string, unknown>()
   const register = vi.fn((tool: { name: string }) => { installed.set(tool.name, tool) })
   const get = vi.fn((name: string) => installed.get(name))
-  const agent = { steer, cancel, ctx: { tools: { register, get } } }
+  const restrict = vi.fn()
+  const agent = { steer, cancel, ctx: { tools: { register, get, restrict } } }
   const create = vi.fn(async () => ({ sessionId: SessionId('dsh-1') }))
   const resolveAgent = vi.fn(async () => ({ agent }))
   const ctx = {
     workspaceRegistry: { get: (id: string) => id === 'workspace-a' ? { id, path: 'C:/work/a' } : undefined },
     sessionController: { create, resolveAgent },
   } as unknown as Context
-  return { ctx, create, resolveAgent, steer, cancel, register, get, installed }
+  return { ctx, create, resolveAgent, steer, cancel, register, get, restrict, installed }
 }
 
 describe('embedded IRA Provider', () => {
@@ -64,6 +65,16 @@ describe('embedded IRA Provider', () => {
     })
     expect(test.register).toHaveBeenCalledTimes(4)
     expect(test.steer).toHaveBeenCalledTimes(2)
+  })
+
+  it('removes Web-only questions from Schedule Manager scope', async () => {
+    const test = harness()
+    await execute(test.ctx, { workspaces: { 'ira-agent-platform': 'workspace-a' } }, {
+      type: 'dsh.command', commandId: 'schedule-open', operation: 'session.open', agentPreset: 'ira-schedule-manager',
+      workspace: 'ira-agent-platform', dshSessionId: 'manager', hubMcpUrl: 'https://hub.example/mcp', sessionCapability: 'manager-capability', text: 'manage',
+    })
+    expect(test.restrict).toHaveBeenCalledWith({ deny: ['ask_user_question'] })
+    expect(test.register.mock.calls.map(call => call[0].name)).toContain('ira_schedule_blocker')
   })
 
   it('joins and remembers duplicate command IDs', async () => {

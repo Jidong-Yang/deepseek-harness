@@ -157,6 +157,7 @@ function ensureHubTools(ctx: Context, agent: unknown, command: Command): void {
     : command.agentPreset === 'ira-schedule-manager' ? 'ira_schedule_context' : 'ira_context'
   if (ctx.tools.get(marker, agent as never)) return
   installHubTools(ctx, command)
+  if (command.agentPreset === 'ira-schedule-manager') ctx.tools.restrict({ deny: ['ask_user_question'] })
 }
 
 function installHubTools(ctx: Context, command: Command): void {
