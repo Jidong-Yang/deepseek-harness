@@ -176,8 +176,6 @@ function installHubTools(ctx: Context, command: Command): void {
         providerId: { type: 'string', description: 'Required for direct/supervisor; copy an exact providerId from ira_providers.' },
         workspace: { type: 'string', description: 'Required for direct/supervisor; copy an exact workspace name from ira_providers.' },
         objective: { type: 'string', description: 'Required and non-empty for direct/supervisor. Never use prompt for these modes.' },
-        cadence: { type: 'string', description: 'Required and non-empty only for schedule.' },
-        prompt: { type: 'string', description: 'Required and non-empty only for schedule. Never use for direct/supervisor.' },
       }, output, execute: (args) => {
         return call('route', args)
       },
