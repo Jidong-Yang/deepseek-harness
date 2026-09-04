@@ -173,15 +173,12 @@ function installHubTools(ctx: Context, command: Command): void {
       name: 'ira_route', description: 'Route this new Teams post exactly once.',
       parameters: {
         mode: { type: 'string', required: true, enum: ['direct', 'supervisor', 'schedule'] },
-        providerId: { type: 'string' }, workspace: { type: 'string' }, objective: { type: 'string' },
-        cadence: { type: 'string' }, prompt: { type: 'string' },
+        providerId: { type: 'string', description: 'Required for direct/supervisor; copy an exact providerId from ira_providers.' },
+        workspace: { type: 'string', description: 'Required for direct/supervisor; copy an exact workspace name from ira_providers.' },
+        objective: { type: 'string', description: 'Required and non-empty for direct/supervisor. Never use prompt for these modes.' },
+        cadence: { type: 'string', description: 'Required and non-empty only for schedule.' },
+        prompt: { type: 'string', description: 'Required and non-empty only for schedule. Never use for direct/supervisor.' },
       }, output, execute: (args) => {
-        trace('route.args', {
-          keys: Object.keys(args).sort(),
-          objectivePresent: Object.hasOwn(args, 'objective'),
-          objectiveType: typeof args.objective,
-          objectiveLength: typeof args.objective === 'string' ? args.objective.length : undefined,
-        })
         return call('route', args)
       },
     }))
