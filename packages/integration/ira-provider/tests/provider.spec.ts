@@ -6,15 +6,17 @@ import { execute, executeOnce, resolveWorkspaces } from '../src/index.ts'
 function harness() {
   const steer = vi.fn()
   const cancel = vi.fn()
-  const register = vi.fn()
-  const agent = { steer, cancel, ctx: { tools: { register } } }
+  const installed = new Map<string, unknown>()
+  const register = vi.fn((tool: { name: string }) => { installed.set(tool.name, tool) })
+  const get = vi.fn((name: string) => installed.get(name))
+  const agent = { steer, cancel, ctx: { tools: { register, get } } }
   const create = vi.fn(async () => ({ sessionId: SessionId('dsh-1') }))
   const resolveAgent = vi.fn(async () => ({ agent }))
   const ctx = {
     workspaceRegistry: { get: (id: string) => id === 'workspace-a' ? { id, path: 'C:/work/a' } : undefined },
     sessionController: { create, resolveAgent },
   } as unknown as Context
-  return { ctx, create, resolveAgent, steer, cancel, register }
+  return { ctx, create, resolveAgent, steer, cancel, register, get, installed }
 }
 
 describe('embedded IRA Provider', () => {
@@ -54,7 +56,14 @@ describe('embedded IRA Provider', () => {
     expect(test.create).not.toHaveBeenCalled()
     expect(test.resolveAgent).toHaveBeenCalledWith(SessionId('dsh-1'))
     expect(test.steer).toHaveBeenCalledOnce()
-    expect(test.register).not.toHaveBeenCalled()
+    expect(test.register).toHaveBeenCalledTimes(4)
+    expect(test.register.mock.calls.map(call => call[0].name)).toEqual(['ira_context', 'ira_progress', 'ira_blocker', 'ira_complete'])
+    await execute(test.ctx, { workspaces: { 'ira-agent-platform': 'workspace-a' } }, {
+      type: 'dsh.command', commandId: 'c2b', operation: 'session.steer',
+      agentPreset: 'ira-devloop', workspace: 'ira-agent-platform', dshSessionId: 'dsh-1', hubMcpUrl: 'https://hub.example/mcp', sessionCapability: 'owner-capability', text: 'again',
+    })
+    expect(test.register).toHaveBeenCalledTimes(4)
+    expect(test.steer).toHaveBeenCalledTimes(2)
   })
 
   it('joins and remembers duplicate command IDs', async () => {

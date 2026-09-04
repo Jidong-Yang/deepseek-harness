@@ -143,13 +143,20 @@ export async function execute(ctx: Context, config: Pick<Config, 'workspaces'>, 
   }
   const resolved = await ctx.sessionController.resolveAgent(sessionId)
   if ('error' in resolved) throw resolved.error
-  if (command.operation === 'session.open') installHubTools(resolved.agent.ctx, command)
+  ensureHubTools(resolved.agent.ctx, resolved.agent, command)
   if (command.operation === 'session.cancel') {
     resolved.agent.cancel({ kind: 'user' }, { keepInbox: true })
     return
   }
   if (!command.text) throw new Error('command text is required')
   resolved.agent.steer(createUserMessage({ content: [{ type: 'text', text: command.text }], source: { kind: 'user' } }))
+}
+
+function ensureHubTools(ctx: Context, agent: unknown, command: Command): void {
+  const marker = command.agentPreset === 'ira-intake-router' ? 'ira_route'
+    : command.agentPreset === 'ira-schedule-manager' ? 'ira_schedule_context' : 'ira_context'
+  if (ctx.tools.get(marker, agent as never)) return
+  installHubTools(ctx, command)
 }
 
 function installHubTools(ctx: Context, command: Command): void {
