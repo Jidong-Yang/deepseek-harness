@@ -1,11 +1,11 @@
 /**
  * Real-composition guard for the dormant pi-ai posture: LlmRuntime,
- * settings-file, credentials-local, and a bare `llm-pi-ai` row boot from a
- * test-only cordis.yml through the actual Loader + Include path, an external
- * edit of settings.yaml registers the route live, and the next request
- * carries the credential the credentials document supplies. A hand-mounted `ctx.plugin` cannot
- * catch Loader export-shape failures, which is why the twin adapter has the
- * same guard.
+ * settings-file, credentials-local, attachment-local, and a bare `llm-pi-ai`
+ * row boot from a test-only cordis.yml through the actual Loader + Include
+ * path. External settings edits register routes live; requests carry stored
+ * credentials and apply route image limits before reaching the provider. A
+ * hand-mounted `ctx.plugin` cannot catch Loader export-shape failures, which
+ * is why the twin adapter has the same guard.
  */
 
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -16,6 +16,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
+import LocalAttachmentStore from '@deepseek-ai/dsh-attachment-local'
 import LlmRuntime, { createMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import LocalCredentialProvider from '@deepseek-ai/dsh-credentials-local'
 import FileSettingsProvider from '@deepseek-ai/dsh-settings-file'
@@ -65,6 +66,10 @@ async function loadComposition(): Promise<{ ctx: Context; settingsPath: string }
     '  config:',
     `    path: ${JSON.stringify(join(root, '.credentials.yaml'))}`,
     '    debounceMs: 10',
+    '- id: attachments',
+    "  name: '@deepseek-ai/dsh-attachment-local'",
+    '  config:',
+    `    dshHome: ${JSON.stringify(root)}`,
     '- id: llm-pi-ai',
     "  name: '@deepseek-ai/dsh-llm-pi-ai'",
     '',
@@ -79,6 +84,7 @@ async function loadComposition(): Promise<{ ctx: Context; settingsPath: string }
     ['test-llm-service', LlmRuntime],
     ['@deepseek-ai/dsh-settings-file', FileSettingsProvider],
     ['@deepseek-ai/dsh-credentials-local', LocalCredentialProvider],
+    ['@deepseek-ai/dsh-attachment-local', LocalAttachmentStore],
     ['@deepseek-ai/dsh-llm-pi-ai', LlmPiAi],
   ])
   ctx.loader.internal = {
@@ -121,6 +127,50 @@ describe('llm-pi-ai real dormant composition', () => {
     const result = await assemble(ctx, { provider: 'deepseek', model: 'deepseek-v4-flash', messages: [] })
     expect(result.message.content).toEqual([{ type: 'text', text: 'hello' }])
     expect(server.headers[0]?.authorization).toBe('Bearer key-from-store')
+  })
+
+  it('limits accumulated image history to the default before sending the provider request', async () => {
+    vi.stubEnv('PI_COMPOSITION_KEY', '')
+    const server = await mockServer([{ events: textEvents }])
+    const { ctx, settingsPath } = await loadComposition()
+    await writeFile(settingsPath, [
+      'llm-pi-ai:',
+      '  providers:',
+      '    deepseek:',
+      '      apiKeyEnv: PI_COMPOSITION_KEY',
+      `      baseURL: ${server.url}`,
+      '      modelOverrides:',
+      '        deepseek-v4-flash:',
+      '          input: [text, image]',
+      '',
+    ].join('\n'))
+    await vi.waitFor(() => {
+      expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['deepseek'])
+    }, { timeout: 5000 })
+
+    const image = await ctx.attachments.saveImage({
+      data: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC', 'base64'),
+      mediaType: 'image/png',
+    })
+    const result = await assemble(ctx, {
+      provider: 'deepseek',
+      model: 'deepseek-v4-flash',
+      messages: [createUserMessage({
+        content: Array.from({ length: 51 }, () => ({ type: 'image' as const, attachment: image })),
+        source: { kind: 'user' },
+      })],
+    })
+
+    expect(result.message.content).toEqual([{ type: 'text', text: 'hello' }])
+    const request = server.requests[0] as {
+      messages: { content: { type: string; text?: string }[] }[]
+    }
+    const content = request.messages[0]?.content
+    expect(content?.filter(block => block.type === 'image_url')).toHaveLength(50)
+    expect(content?.[0]).toMatchObject({
+      type: 'text',
+      text: expect.stringContaining('image omitted to fit request image limits') as string,
+    })
   })
 
   it('continues natively after max-token assembly drops a tool call, with pruned replay metadata', async () => {

@@ -14,7 +14,7 @@ import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
-import { DEFAULT_MAX_REQUEST_IMAGE_BYTES, resolveProfiles } from '../src/config.ts'
+import { DEFAULT_MAX_REQUEST_IMAGE_BYTES, DEFAULT_MAX_REQUEST_IMAGES, resolveProfiles } from '../src/config.ts'
 import { memoryAuth } from './auth-double.ts'
 import { assemble } from './assemble.ts'
 import { closeMockServers, mockServer, textEvents } from './mock-server.ts'
@@ -816,6 +816,7 @@ describe('provider profile lifecycle', () => {
 
   it('validates empty, underspecified, legacy-shaped, and explicitly blank profiles', () => {
     expect(DEFAULT_MAX_REQUEST_IMAGE_BYTES).toBe(20 * 1024 * 1024)
+    expect(DEFAULT_MAX_REQUEST_IMAGES).toBe(50)
     // Empty and omitted dicts are the dormant zero-route posture, not errors.
     expect(resolveProfiles({}).size).toBe(0)
     expect(resolveProfiles(undefined).size).toBe(0)
@@ -830,10 +831,15 @@ describe('provider profile lifecycle', () => {
     expect(() => resolveProfiles({ openai: { baseURL: '' } })).toThrow(/empty baseURL/)
     expect(() => resolveProfiles({ openai: { apiKeyEnv: 'not-a-var!' } })).toThrow(/must match/)
     expect(() => resolveProfiles({ openai: { maxRequestImageBytes: 0 } })).toThrow(/maxRequestImageBytes/)
+    expect(() => resolveProfiles({ openai: { maxRequestImages: 0 } })).toThrow(/maxRequestImages/)
     expect(resolveProfiles({ openai: {} }).get('openai')?.maxRequestImageBytes)
       .toBe(DEFAULT_MAX_REQUEST_IMAGE_BYTES)
     expect(resolveProfiles({ openai: { maxRequestImageBytes: 1024 } }).get('openai')?.maxRequestImageBytes)
       .toBe(1024)
+    expect(resolveProfiles({ openai: {} }).get('openai')?.maxRequestImages)
+      .toBe(DEFAULT_MAX_REQUEST_IMAGES)
+    expect(resolveProfiles({ openai: { maxRequestImages: 12 } }).get('openai')?.maxRequestImages)
+      .toBe(12)
   })
 
   it.each(['maxRetries', 'maxRetryDelayMs'] as const)(
@@ -858,6 +864,9 @@ describe('provider profile lifecycle', () => {
       { maxRequestImageBytes: 0 },
       { maxRequestImageBytes: 1.5 },
       { maxRequestImageBytes: Number.NaN },
+      { maxRequestImages: 0 },
+      { maxRequestImages: 1.5 },
+      { maxRequestImages: Number.NaN },
     ]
     for (const entry of invalid) {
       const ctx = new Context()

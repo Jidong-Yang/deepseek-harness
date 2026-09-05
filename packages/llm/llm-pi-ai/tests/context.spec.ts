@@ -306,6 +306,30 @@ describe('pi-ai request context conversion', () => {
     expect(readImageRequest).toHaveBeenCalledTimes(1)
   })
 
+  it('retains exactly 50 request images and replaces the oldest occurrence after the limit', async () => {
+    const shared: ContentBlock = { type: 'image', attachment: ref }
+    const exact = await toPiContext(
+      request([user(Array.from({ length: 50 }, () => shared))]),
+      imageContext(attachments, { maxRequestImages: 50 }),
+    )
+    expect(JSON.stringify(exact.messages).match(/"type":"image"/g)).toHaveLength(50)
+
+    const over = await toPiContext(
+      request([user(Array.from({ length: 51 }, () => shared))]),
+      imageContext(attachments, { maxRequestImages: 50 }),
+    )
+    expect(JSON.stringify(over.messages).match(/"type":"image"/g)).toHaveLength(50)
+    const first = over.messages[0]
+    if (first?.role !== 'user' || typeof first.content === 'string') {
+      throw new Error('expected rich user content')
+    }
+    expect(first.content.slice(0, 3)).toEqual([
+      { type: 'text', text: offloadedImageText(ref) },
+      { type: 'text', text: expect.stringContaining(String(ref.attachmentId)) as string },
+      { type: 'image', data: 'AQ==', mimeType: 'image/png' },
+    ])
+  })
+
   it('does not prepare an old image removed by the conservative request projection', async () => {
     const old = { ...ref, attachmentId: AttachmentId(`sha256:${'c'.repeat(64)}`), bytes: 3 }
     const recent = { ...ref, attachmentId: AttachmentId(`sha256:${'d'.repeat(64)}`), bytes: 3 }
