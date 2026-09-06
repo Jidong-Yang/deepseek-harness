@@ -8,16 +8,18 @@ function harness() {
   const cancel = vi.fn()
   const installed = new Map<string, unknown>()
   const register = vi.fn((tool: { name: string }) => { installed.set(tool.name, tool) })
+  const globalNames = ['ask_user_question', 'mcp__ado__wit_work_item', 'mcp__kusto__kusto_query', 'mcp__voice-dashboard__voice_dashboard_query_metric']
   const get = vi.fn((name: string) => installed.get(name))
+  const schemas = vi.fn(() => globalNames.map(name => ({ name })))
   const restrict = vi.fn()
-  const agent = { steer, cancel, ctx: { tools: { register, get, restrict } } }
+  const agent = { steer, cancel, ctx: { tools: { register, get, schemas, restrict } } }
   const create = vi.fn(async () => ({ sessionId: SessionId('dsh-1') }))
   const resolveAgent = vi.fn(async () => ({ agent }))
   const ctx = {
     workspaceRegistry: { get: (id: string) => id === 'workspace-a' ? { id, path: 'C:/work/a' } : undefined },
     sessionController: { create, resolveAgent },
   } as unknown as Context
-  return { ctx, create, resolveAgent, steer, cancel, register, get, restrict, installed }
+  return { ctx, create, resolveAgent, steer, cancel, register, get, schemas, restrict, installed }
 }
 
 describe('embedded IRA Provider', () => {
@@ -73,8 +75,28 @@ describe('embedded IRA Provider', () => {
       type: 'dsh.command', commandId: 'schedule-open', operation: 'session.open', agentPreset: 'ira-schedule-manager',
       workspace: 'ira-agent-platform', dshSessionId: 'manager', hubMcpUrl: 'https://hub.example/mcp', sessionCapability: 'manager-capability', text: 'manage',
     })
-    expect(test.restrict).toHaveBeenCalledWith({ deny: ['ask_user_question'] })
+    expect(test.restrict).toHaveBeenCalledWith({ deny: ['ask_user_question', 'mcp__ado__wit_work_item', 'mcp__kusto__kusto_query', 'mcp__voice-dashboard__voice_dashboard_query_metric'] })
     expect(test.register.mock.calls.map(call => call[0].name)).toContain('ira_schedule_blocker')
+  })
+
+  it.each([
+    ['ira-intake-router', ['mcp__kusto__kusto_query', 'mcp__voice-dashboard__voice_dashboard_query_metric']],
+    ['ira-devloop', []], ['ira-supervisor', []],
+    ['ira-schedule-manager', ['ask_user_question', 'mcp__ado__wit_work_item', 'mcp__kusto__kusto_query', 'mcp__voice-dashboard__voice_dashboard_query_metric']],
+  ] as const)('restricts global MCPs for %s', async (preset, denied) => {
+    const test = harness()
+    await execute(test.ctx, { workspaces: { 'ira-agent-platform': 'workspace-a' } }, { type: 'dsh.command', commandId: 'matrix-' + preset, operation: 'session.open', agentPreset: preset, workspace: 'ira-agent-platform', dshSessionId: 'matrix', hubMcpUrl: 'https://hub.example/mcp', sessionCapability: 'cap', text: 'test' })
+    if (denied.length) expect(test.restrict).toHaveBeenCalledWith({ deny: [...denied] })
+    else expect(test.restrict).not.toHaveBeenCalled()
+  })
+
+  it('adds restrictions for MCP tools discovered after session open', async () => {
+    const test = harness()
+    const command = { type: 'dsh.command' as const, commandId: 'dynamic-open', operation: 'session.open' as const, agentPreset: 'ira-intake-router' as const, workspace: 'ira-agent-platform', dshSessionId: 'dynamic', hubMcpUrl: 'https://hub.example/mcp', sessionCapability: 'cap', text: 'open' }
+    await execute(test.ctx, { workspaces: { 'ira-agent-platform': 'workspace-a' } }, command)
+    test.schemas.mockImplementation(() => [...['ask_user_question', 'mcp__ado__wit_work_item', 'mcp__kusto__kusto_query', 'mcp__voice-dashboard__voice_dashboard_query_metric', 'mcp__kusto__new_tool'].map(name => ({ name }))])
+    await execute(test.ctx, { workspaces: { 'ira-agent-platform': 'workspace-a' } }, { ...command, commandId: 'dynamic-steer', operation: 'session.steer', text: 'again' })
+    expect(test.restrict).toHaveBeenLastCalledWith({ deny: ['mcp__kusto__new_tool'] })
   })
 
   it('joins and remembers duplicate command IDs', async () => {

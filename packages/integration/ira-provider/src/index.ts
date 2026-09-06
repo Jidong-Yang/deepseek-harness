@@ -155,9 +155,21 @@ export async function execute(ctx: Context, config: Pick<Config, 'workspaces'>, 
 function ensureHubTools(ctx: Context, agent: unknown, command: Command): void {
   const marker = command.agentPreset === 'ira-intake-router' ? 'ira_route'
     : command.agentPreset === 'ira-schedule-manager' ? 'ira_schedule_context' : 'ira_context'
-  if (ctx.tools.get(marker, agent as never)) return
-  installHubTools(ctx, command)
-  if (command.agentPreset === 'ira-schedule-manager') ctx.tools.restrict({ deny: ['ask_user_question'] })
+  if (!ctx.tools.get(marker, agent as never)) installHubTools(ctx, command)
+  restrictPresetTools(ctx, agent, command.agentPreset)
+}
+
+const restrictedNames = new WeakMap<object, Set<string>>()
+function restrictPresetTools(ctx: Context, agent: unknown, preset: Command['agentPreset']): void {
+  const visibleMcp = preset === 'ira-intake-router' ? ['mcp__ado__']
+    : preset === 'ira-devloop' || preset === 'ira-supervisor' ? ['mcp__ado__', 'mcp__kusto__', 'mcp__voice-dashboard__'] : []
+  const deny = ctx.tools.schemas().map(tool => tool.name).filter(name =>
+    (name === 'ask_user_question' && preset === 'ira-schedule-manager')
+    || (name.startsWith('mcp__') && !visibleMcp.some(prefix => name.startsWith(prefix))))
+  const key = agent as object
+  const known = restrictedNames.get(key) ?? new Set<string>()
+  const added = deny.filter(name => !known.has(name))
+  if (added.length) { ctx.tools.restrict({ deny: added }); added.forEach(name => known.add(name)); restrictedNames.set(key, known) }
 }
 
 function installHubTools(ctx: Context, command: Command): void {
