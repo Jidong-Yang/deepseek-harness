@@ -13,11 +13,17 @@ import WebSocket from 'ws'
 export const name = 'ira-provider'
 export const inject = ['sessionController', 'workspaceRegistry']
 
+/** Connection identity and local workspace mapping for one outbound Provider. */
 export interface Config {
+  /** Authenticated Hub WebSocket endpoint. */
   hubUrl: string
+  /** Stable identity presented to the Hub. */
   providerId: string
+  /** Bearer credential for the Hub WebSocket handshake. */
   token: string
+  /** Stable workspace names mapped to local directories, including ira-agent-platform. */
   workspaces: Record<string, string>
+  /** Delay in milliseconds before reconnecting after connection failure or closure. */
   reconnectMs?: number
 }
 export const Config: z<Config> = z.object({
@@ -39,7 +45,19 @@ type Command = {
   sessionCapability: string
   text?: string
 }
-type HubFrame = Command
+function validateCommand(input: unknown): asserts input is Command {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Invalid IRA command object')
+  const value = input as Record<string, unknown>
+  if (value.type !== 'dsh.command') throw new Error('Invalid IRA command type')
+  if (!['session.open', 'session.steer', 'session.cancel'].includes(value.operation as string)) throw new Error('Invalid IRA command operation')
+  if (!['ira-intake-router', 'ira-devloop', 'ira-supervisor', 'ira-schedule-manager'].includes(value.agentPreset as string)) throw new Error('Invalid IRA command preset')
+  for (const field of ['commandId', 'workspace', 'dshSessionId', 'hubMcpUrl', 'sessionCapability']) {
+    if (typeof value[field] !== 'string' || !(value[field]).trim()) throw new Error('Invalid IRA command field: ' + field)
+  }
+  const url = URL.parse(value.hubMcpUrl as string)
+  if (!url || !['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('Invalid IRA Hub tool URL')
+  if (value.operation !== 'session.cancel' && (typeof value.text !== 'string' || !value.text.trim())) throw new Error('command text is required')
+}
 
 const completedCommands = new Set<string>()
 const runningCommands = new Map<string, Promise<void>>()
@@ -47,13 +65,14 @@ const runningCommands = new Map<string, Promise<void>>()
 export function apply(ctx: Context, config: Config): void {
   const abort = new AbortController()
   ctx.effect(() => {
-    void connectLoop(ctx, config, abort.signal)
-    return () => { abort.abort() }
+    const running = connectLoop(ctx, config, abort.signal)
+    return async () => { abort.abort(); await running }
   }, 'ira-provider connection')
 }
 
 async function connectLoop(ctx: Context, config: Config, signal: AbortSignal): Promise<void> {
-  while (!signal.aborted) {
+  const isRunning = (): boolean => !signal.aborted
+  while (isRunning()) {
     try { await connectOnce(ctx, config, signal) }
     catch (error) {
       if (!signal.aborted) ctx.logger.error(`ira-provider: ${error instanceof Error ? error.message : String(error)}`)
@@ -63,52 +82,81 @@ async function connectLoop(ctx: Context, config: Config, signal: AbortSignal): P
 }
 
 async function connectOnce(ctx: Context, config: Config, signal: AbortSignal): Promise<void> {
+  if (!Object.hasOwn(config.workspaces, 'ira-agent-platform')) throw new Error('Provider must expose the ira-agent-platform workspace')
   const resolved = await resolveWorkspaces(ctx, config.workspaces)
+  if (signal.aborted) return
   const workspaces = [...resolved.keys()].map(name => ({ name }))
-  if (!Object.hasOwn(config.workspaces, 'ira-agent-platform')) {
-    throw new Error('Provider must expose the ira-agent-platform workspace')
-  }
   const socket = new WebSocket(config.hubUrl, {
-    headers: {
-      authorization: `Bearer ${config.token}`,
-      'x-ira-provider-id': config.providerId,
-    },
+    headers: { authorization: 'Bearer ' + config.token, 'x-ira-provider-id': config.providerId },
+    handshakeTimeout: 30_000,
   })
   const connectorInstanceId = randomUUID()
-  signal.addEventListener('abort', () => socket.close(), { once: true })
-  await opened(socket)
-  trace('socket.open', { connectorInstanceId, providerId: config.providerId })
-  socket.send(JSON.stringify({
-    type: 'dsh.provider.hello', providerId: config.providerId, connectorInstanceId,
-    catalog: { workspaces },
-  }))
-  let heartbeatSequence = 0
-  const heartbeat = setInterval(() => {
-    if (socket.readyState === WebSocket.OPEN) {
-      heartbeatSequence += 1
-      socket.send(JSON.stringify({ type: 'dsh.provider.heartbeat', providerId: config.providerId, connectorInstanceId, sequence: heartbeatSequence, observedAt: new Date().toISOString() }))
-      if (heartbeatSequence % 4 === 0) trace('heartbeat.sent', { connectorInstanceId, sequence: heartbeatSequence })
+  let heartbeat: ReturnType<typeof setInterval> | undefined
+  let abort = (): void => {}
+  const send = (frame: object): void => {
+    if (socket.readyState !== WebSocket.OPEN) return
+    try {
+      socket.send(JSON.stringify(frame), (error) => {
+        if (error) { ctx.logger.error('ira-provider: result transport failed'); socket.terminate() }
+      })
+    } catch {
+      ctx.logger.error('ira-provider: result transport failed')
+      socket.terminate()
     }
-  }, 15_000)
-  heartbeat.unref()
+  }
   try {
     await new Promise<void>((resolve) => {
-      socket.addEventListener('message', (event) => {
-        const command = JSON.parse(String(event.data)) as HubFrame
-        void executeOnce(ctx, { workspaces: Object.fromEntries(resolved) }, command).then(
-          () => socket.send(JSON.stringify({ type: 'dsh.command.result', commandId: command.commandId, ok: true })),
-          (error: unknown) => socket.send(JSON.stringify({
-            type: 'dsh.command.result', commandId: command.commandId, ok: false,
-            error: error instanceof Error ? error.message : String(error),
-          })),
+      abort = () => { socket.terminate() }
+      signal.addEventListener('abort', abort, { once: true })
+      socket.on('error', () => {
+        ctx.logger.error('ira-provider: Hub WebSocket connection failed')
+        socket.terminate()
+      })
+      socket.once('close', (code, reason) => {
+        trace('socket.close', { connectorInstanceId, code, reason: reason.toString() })
+        resolve()
+      })
+      socket.on('message', (data) => {
+        if (signal.aborted || socket.readyState !== WebSocket.OPEN) return
+        let command: unknown
+        try { command = JSON.parse((Array.isArray(data) ? Buffer.concat(data) : data instanceof ArrayBuffer ? Buffer.from(data) : data).toString('utf8')); validateCommand(command) }
+        catch {
+          ctx.logger.error('ira-provider: rejected invalid Hub command frame')
+          socket.close(1008, 'Invalid IRA command')
+          return
+        }
+        const accepted = command
+        void executeOnce(ctx, { workspaces: Object.fromEntries(resolved) }, accepted).then(
+          () => { send({ type: 'dsh.command.result', commandId: accepted.commandId, ok: true }) },
+          (error: unknown) => { send({ type: 'dsh.command.result', commandId: accepted.commandId, ok: false,
+            error: error instanceof Error ? error.message : String(error) }) },
         )
       })
-      socket.addEventListener('close', (event) => { trace('socket.close', { connectorInstanceId, code: event.code, reason: event.reason }); resolve() }, { once: true })
-      socket.addEventListener('error', () => trace('socket.error', { connectorInstanceId }))
+      socket.once('open', () => {
+        trace('socket.open', { connectorInstanceId, providerId: config.providerId })
+        send({ type: 'dsh.provider.hello', providerId: config.providerId, connectorInstanceId, catalog: { workspaces } })
+        let sequence = 0
+        heartbeat = setInterval(() => {
+          send({ type: 'dsh.provider.heartbeat', providerId: config.providerId, connectorInstanceId,
+            sequence: ++sequence, observedAt: new Date().toISOString() })
+        }, 15_000)
+        heartbeat.unref()
+      })
+      if (signal.aborted) abort()
     })
-  } finally { clearInterval(heartbeat) }
+  } finally {
+    clearInterval(heartbeat)
+    signal.removeEventListener('abort', abort)
+    if (socket.readyState !== WebSocket.CLOSED) socket.terminate()
+  }
 }
 
+/**
+ * Resolve configured directories to private DSH workspace identities, creating missing entries.
+ * @param ctx - Host context owning the workspace registry.
+ * @param configured - Public workspace names mapped to local directories.
+ * @returns Resolved name-to-identity mapping; propagates registry failures.
+ */
 export async function resolveWorkspaces(ctx: Context, configured: Record<string, string>): Promise<Map<string, string>> {
   const resolved = new Map<string, string>()
   for (const [name, directory] of Object.entries(configured)) {
@@ -119,6 +167,13 @@ export async function resolveWorkspaces(ctx: Context, configured: Record<string,
   return resolved
 }
 
+/**
+ * Coalesce process-local retries; success is not a durable delivery receipt.
+ * @param ctx - Host context owning SessionController and WorkspaceRegistry.
+ * @param config - Exposed workspace names mapped to resolved local identities.
+ * @param command - Current Hub command with an immutable delivery identity.
+ * @returns Shared dispatch completion for an in-flight duplicate, rejecting on dispatch failure.
+ */
 export function executeOnce(ctx: Context, config: Pick<Config, 'workspaces'>, command: Command): Promise<void> {
   if (completedCommands.has(command.commandId)) return Promise.resolve()
   let running = runningCommands.get(command.commandId)
@@ -130,7 +185,15 @@ export function executeOnce(ctx: Context, config: Pick<Config, 'workspaces'>, co
   return running
 }
 
+/**
+ * Validate and dispatch a Hub command; success does not await persistence or Agent completion.
+ * @param ctx - Host context owning SessionController and WorkspaceRegistry.
+ * @param config - Exposed workspace names mapped to resolved local identities.
+ * @param command - Command to open, steer, or cancel one Session.
+ * @returns Local dispatch completion; rejects invalid commands before Session mutation.
+ */
 export async function execute(ctx: Context, config: Pick<Config, 'workspaces'>, command: Command): Promise<void> {
+  validateCommand(command)
   const workspaceId = config.workspaces[command.workspace]
   if (!workspaceId) throw new Error('workspace is not exposed')
   const workspace = ctx.workspaceRegistry.get(WorkspaceId(workspaceId))
@@ -159,17 +222,29 @@ function ensureHubTools(ctx: Context, agent: unknown, command: Command): void {
   restrictPresetTools(ctx, agent, command.agentPreset)
 }
 
-const restrictedNames = new WeakMap<object, Set<string>>()
+const presetPolicies = new WeakMap<object, () => void>()
 function restrictPresetTools(ctx: Context, agent: unknown, preset: Command['agentPreset']): void {
+  const key = agent as object
+  const existing = presetPolicies.get(key)
+  if (existing) { existing(); return }
   const visibleMcp = preset === 'ira-intake-router' ? ['mcp__ado__']
     : preset === 'ira-devloop' || preset === 'ira-supervisor' ? ['mcp__ado__', 'mcp__kusto__', 'mcp__voice-dashboard__'] : []
-  const deny = ctx.tools.schemas().map(tool => tool.name).filter(name =>
+  const denied = (name: string): boolean =>
     (name === 'ask_user_question' && preset === 'ira-schedule-manager')
-    || (name.startsWith('mcp__') && !visibleMcp.some(prefix => name.startsWith(prefix))))
-  const key = agent as object
-  const known = restrictedNames.get(key) ?? new Set<string>()
-  const added = deny.filter(name => !known.has(name))
-  if (added.length) { ctx.tools.restrict({ deny: added }); added.forEach(name => known.add(name)); restrictedNames.set(key, known) }
+    || (name.startsWith('mcp__') && !visibleMcp.some(prefix => name.startsWith(prefix)))
+  const known = new Set<string>()
+  const refresh = (): void => {
+    const added = ctx.tools.schemas().map(tool => tool.name).filter(name => denied(name) && !known.has(name))
+    if (!added.length) return
+    // restrict emits tools/change synchronously; mark first to make re-entry inert.
+    added.forEach(name => known.add(name))
+    try { ctx.tools.restrict({ deny: added }) }
+    catch (error) { added.forEach(name => known.delete(name)); throw error }
+  }
+  ctx.tools.guard(exec => denied(exec.name) ? 'Tool is not available to this IRA preset' : undefined)
+  ctx.on('tools/change', refresh)
+  presetPolicies.set(key, refresh)
+  refresh()
 }
 
 function installHubTools(ctx: Context, command: Command): void {
@@ -224,15 +299,11 @@ function installHubTools(ctx: Context, command: Command): void {
 function shortHash(value: string): string { return createHash('sha256').update(value).digest('hex').slice(0, 12) }
 function trace(event: string, fields: Record<string, unknown>): void { console.log(JSON.stringify({ component: 'ira-provider', event, pid: process.pid, at: new Date().toISOString(), ...fields })) }
 
-function opened(socket: WebSocket): Promise<void> {
-  return new Promise((resolve, reject) => {
-    socket.addEventListener('open', () => resolve(), { once: true })
-    socket.addEventListener('error', () => reject(new Error('IRA Hub WebSocket failed to open')), { once: true })
-  })
-}
 function delay(ms: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.resolve()
   return new Promise((resolve) => {
-    const timer = setTimeout(resolve, ms)
-    signal.addEventListener('abort', () => { clearTimeout(timer); resolve() }, { once: true })
+    const done = (): void => { clearTimeout(timer); signal.removeEventListener('abort', done); resolve() }
+    const timer = setTimeout(done, ms)
+    signal.addEventListener('abort', done, { once: true })
   })
 }

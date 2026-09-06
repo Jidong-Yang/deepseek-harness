@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import { SessionId } from '@deepseek-ai/dsh-session'
+import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import { execute, executeOnce, resolveWorkspaces } from '../src/index.ts'
 
 function harness() {
-  const steer = vi.fn()
+  const steer = vi.fn<(message: UserMessage) => void>()
   const cancel = vi.fn()
   const installed = new Map<string, unknown>()
   const register = vi.fn((tool: { name: string }) => { installed.set(tool.name, tool) })
@@ -12,7 +13,7 @@ function harness() {
   const get = vi.fn((name: string) => installed.get(name))
   const schemas = vi.fn(() => globalNames.map(name => ({ name })))
   const restrict = vi.fn()
-  const agent = { steer, cancel, ctx: { tools: { register, get, schemas, restrict } } }
+  const agent = { steer, cancel, ctx: { on: vi.fn(), tools: { register, get, schemas, restrict, guard: vi.fn() } } }
   const create = vi.fn(async () => ({ sessionId: SessionId('dsh-1') }))
   const resolveAgent = vi.fn(async () => ({ agent }))
   const ctx = {
@@ -26,13 +27,14 @@ describe('embedded IRA Provider', () => {
   it('resolves existing paths and creates missing DSH workspaces', async () => {
     const existing = { id: 'existing' }
     const created = { id: 'created' }
+    const createMissing = vi.fn(async () => created)
     const ctx = { workspaceRegistry: {
       resolveByPath: vi.fn(async (path: string) => path === 'C:/existing' ? existing : undefined),
-      create: vi.fn(async () => created),
+      create: createMissing,
     } } as unknown as Context
     const result = await resolveWorkspaces(ctx, { existing: 'C:/existing', missing: 'C:/missing' })
     expect(Object.fromEntries(result)).toEqual({ existing: 'existing', missing: 'created' })
-    expect(ctx.workspaceRegistry.create).toHaveBeenCalledWith('C:/missing')
+    expect(createMissing).toHaveBeenCalledWith('C:/missing')
   })
 
   it('opens one visible DSH session and steers its initial turn', async () => {
@@ -110,6 +112,23 @@ describe('embedded IRA Provider', () => {
     await executeOnce(test.ctx, { workspaces: { 'ira-agent-platform': 'workspace-a' } }, command)
     expect(test.create).toHaveBeenCalledOnce()
     expect(test.steer).toHaveBeenCalledOnce()
+  })
+
+  it.each([
+    { operation: 'session.unknown' }, { agentPreset: 'old-router' },
+    { commandId: '' }, { type: 'not-a-command' }, { text: '   ' },
+    { workspace: '' }, { dshSessionId: '' }, { hubMcpUrl: 'file:///bad' },
+    { sessionCapability: '' },
+  ])('rejects malformed commands before any Session mutation: %j', async (patch) => {
+    const test = harness()
+    const command = { type: 'dsh.command', commandId: 'invalid-input', operation: 'session.open',
+      agentPreset: 'ira-devloop', workspace: 'ira-agent-platform', dshSessionId: 'invalid-session',
+      hubMcpUrl: 'https://hub.example/mcp', sessionCapability: 'cap', text: 'test', ...patch,
+    }
+    await expect(execute(test.ctx, { workspaces: { 'ira-agent-platform': 'workspace-a' } }, command as Parameters<typeof execute>[2])).rejects.toThrow()
+    expect(test.create).not.toHaveBeenCalled()
+    expect(test.resolveAgent).not.toHaveBeenCalled()
+    expect(test.steer).not.toHaveBeenCalled()
   })
 
   it('rejects workspaces outside the configured mapping', async () => {

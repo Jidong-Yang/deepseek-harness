@@ -12,6 +12,7 @@
     { "path": "../../llm/llm" },
     { "path": "../../core/session" },
     { "path": "../../core/tools" },
+    { "path": "../../runtime-diagnostics/invariants" },
     { "path": "../../util/values" },
     { "path": "../../workspace/workspace" }
   ]

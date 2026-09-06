@@ -849,6 +849,30 @@ export interface Config {
 
 Source: [`packages/runtime-diagnostics/invariants/src/index.ts:15`](../packages/runtime-diagnostics/invariants/src/index.ts)
 
+<a id="deepseek-aidsh-ira-provider"></a>
+
+## `@deepseek-ai/dsh-ira-provider`
+
+Requires: `sessionController` · `workspaceRegistry`
+
+```ts config-catalog
+/** Connection identity and local workspace mapping for one outbound Provider. */
+export interface Config {
+  /** Authenticated Hub WebSocket endpoint. */
+  hubUrl: string
+  /** Stable identity presented to the Hub. */
+  providerId: string
+  /** Bearer credential for the Hub WebSocket handshake. */
+  token: string
+  /** Stable workspace names mapped to local directories, including ira-agent-platform. */
+  workspaces: Record<string, string>
+  /** Delay in milliseconds before reconnecting after connection failure or closure. */
+  reconnectMs?: number
+}
+```
+
+Source: [`packages/integration/ira-provider/src/index.ts:17`](../packages/integration/ira-provider/src/index.ts)
+
 <a id="deepseek-aidsh-jobs-local"></a>
 
 ## `@deepseek-ai/dsh-jobs-local`
