@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
-import { WebSocketServer, WebSocket } from 'ws'
+import { WebSocketServer, WebSocket, type RawData } from 'ws'
 import { apply } from '../src/index.ts'
 
 const cleanup: Array<() => Promise<void>> = []
@@ -20,6 +20,8 @@ async function serverFixture() {
 }
 
 function startProvider(url: string) {
+  const presets: Array<{ id: string; broken?: string }> = [{ id: 'ira-devloop' }]
+  const list = vi.fn(async () => presets)
   const installed = new Map<string, unknown>()
   const steer = vi.fn()
   const create = vi.fn(async () => ({}))
@@ -32,11 +34,25 @@ function startProvider(url: string) {
   apply({ effect: (fn: () => () => Promise<void>) => { stop = fn() }, logger: { error: errors },
     workspaceRegistry: { resolveByPath: async () => ({ id: 'w' }), get: () => ({ id: 'w' }) },
     sessionController: { create, resolveAgent: async () => ({ agent }) },
+    agentPresets: { list, resolve: async (id: string) => {
+      const found = presets.find(preset => preset.id === id)
+      if (!found) throw new Error('Preset not installed')
+      return found
+    }, composedPreset: () => 'ira-devloop' },
   } as unknown as Context, { hubUrl: url, providerId: 'test-box', token: 'not-a-real-token',
     workspaces: { 'ira-agent-platform': 'C:/test' }, reconnectMs: 100,
   })
   cleanup.push(async () => { await stop() })
-  return { create, steer, errors, stop }
+  return { create, steer, errors, stop, presets, list }
+}
+
+type Frame = { type: 'dsh.provider.hello'; catalog: { agentPresets: string[] } }
+  | { type: 'dsh.command.result'; ok: boolean }
+  | { type: 'dsh.provider.heartbeat' }
+
+function decodeFrame(data: RawData): Frame {
+  const buffer = Array.isArray(data) ? Buffer.concat(data) : data instanceof ArrayBuffer ? Buffer.from(data) : data
+  return JSON.parse(buffer.toString('utf8')) as Frame
 }
 
 function command(commandId: string) {
@@ -65,6 +81,52 @@ describe('Provider WebSocket error containment', () => {
     expect(provider.steer).toHaveBeenCalledOnce()
     expect(provider.errors).toHaveBeenCalled()
     expect(JSON.stringify(provider.errors.mock.calls)).not.toContain('secret-do-not-log')
+  })
+
+  it('advertises only installed healthy supported presets and refreshes on reconnect', async () => {
+    const { server, url } = await serverFixture()
+    const hellos: Array<{ catalog: { agentPresets: string[] } }> = []
+    const sockets: WebSocket[] = []
+    server.on('connection', (socket) => {
+      sockets.push(socket)
+      socket.on('message', (data) => {
+        const frame = decodeFrame(data)
+        if (frame.type === 'dsh.provider.hello') hellos.push(frame)
+      })
+    })
+    const provider = startProvider(url)
+    provider.presets.push(
+      { id: 'ira-intake-router' }, { id: 'ira-supervisor' }, { id: 'ira-schedule-manager' },
+      { id: 'ira-devloop-worker' }, { id: 'ira-e2e-validator', broken: 'missing plugin' },
+      { id: 'ptc' },
+    )
+    await vi.waitFor(() => { expect(hellos).toHaveLength(1) })
+    expect(hellos[0]!.catalog.agentPresets).toEqual(['ira-devloop', 'ira-intake-router', 'ira-supervisor', 'ira-schedule-manager', 'ira-devloop-worker'])
+    delete provider.presets.find(preset => preset.id === 'ira-e2e-validator')!.broken
+    provider.presets.splice(provider.presets.findIndex(preset => preset.id === 'ira-devloop-worker'), 1)
+    sockets[0]!.close()
+    await vi.waitFor(() => { expect(hellos).toHaveLength(2) })
+    expect(hellos[1]!.catalog.agentPresets).toEqual(['ira-devloop', 'ira-intake-router', 'ira-supervisor', 'ira-schedule-manager', 'ira-e2e-validator'])
+    expect(provider.list).toHaveBeenCalledTimes(2)
+  })
+
+  it('returns failed command results for uninstalled or broken child presets without create', async () => {
+    const { server, url } = await serverFixture()
+    const results: Array<{ type: string; ok: boolean }> = []
+    server.on('connection', socket => socket.on('message', (data) => {
+      const frame = decodeFrame(data)
+      if (frame.type === 'dsh.provider.hello') {
+        for (const agentPreset of ['ira-devloop-worker', 'ira-e2e-validator']) {
+          socket.send(JSON.stringify({ ...command(randomUUID()), agentPreset }))
+        }
+      } else if (frame.type === 'dsh.command.result') results.push(frame)
+    }))
+    const provider = startProvider(url)
+    provider.presets.push({ id: 'ira-e2e-validator', broken: 'missing plugin' })
+    await vi.waitFor(() => { expect(results).toHaveLength(2) })
+    expect(results.every(result => !result.ok)).toBe(true)
+    expect(provider.create).not.toHaveBeenCalled()
+    expect(provider.steer).not.toHaveBeenCalled()
   })
 
   it('disposes the active connection without scheduling a replacement', async () => {

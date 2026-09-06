@@ -19,10 +19,15 @@ export interface ControllerProbe {
   agent?: Agent
 }
 
-/** Supply the two services the real IRA Provider declares as required injections. */
+/** Supply Host controller, workspace and preset discovery seams for the transport test. */
 export function apply(ctx: Context, config: { workspacePath: string }): void {
   const workspace = { id: WorkspaceId('composition-workspace'), path: config.workspacePath }
   const probe: ControllerProbe = { creates: [], resolves: [], messages: [], cancellations: 0 }
+  ctx.provide('agentPresets', {
+    list: async () => [{ id: 'ira-devloop' }],
+    resolve: async (id: string) => ({ id }),
+    composedPreset: () => 'ira-devloop',
+  } as unknown as Context['agentPresets'])
   ctx.provide('workspaceRegistry', {
     resolveByPath: async (path: string) => path === workspace.path ? workspace : undefined,
     get: (id: string) => id === workspace.id ? workspace : undefined,

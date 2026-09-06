@@ -14,13 +14,17 @@ function harness() {
   const schemas = vi.fn(() => globalNames.map(name => ({ name })))
   const restrict = vi.fn()
   const agent = { steer, cancel, ctx: { on: vi.fn(), tools: { register, get, schemas, restrict, guard: vi.fn() } } }
-  const create = vi.fn(async () => ({ sessionId: SessionId('dsh-1') }))
+  let preset = 'ira-devloop'
+  const create = vi.fn(async (options: { agentPreset: string }) => { preset = options.agentPreset; return { sessionId: SessionId('dsh-1') } })
+  const resolvePreset = vi.fn(async (id: string): Promise<{ id: string; broken?: string }> => ({ id }))
+  const composedPreset = vi.fn(() => preset)
   const resolveAgent = vi.fn(async () => ({ agent }))
   const ctx = {
     workspaceRegistry: { get: (id: string) => id === 'workspace-a' ? { id, path: 'C:/work/a' } : undefined },
     sessionController: { create, resolveAgent },
+    agentPresets: { resolve: resolvePreset, composedPreset },
   } as unknown as Context
-  return { ctx, create, resolveAgent, steer, cancel, register, get, schemas, restrict, installed }
+  return { ctx, create, resolveAgent, steer, cancel, register, get, schemas, restrict, installed, resolvePreset, composedPreset }
 }
 
 describe('embedded IRA Provider', () => {
@@ -48,8 +52,8 @@ describe('embedded IRA Provider', () => {
     expect(test.steer.mock.calls[0]?.[0].content).toEqual([{ type: 'text', text: 'start' }])
     expect(JSON.stringify(test.steer.mock.calls[0]?.[0])).not.toContain('router-capability')
     expect(JSON.stringify(test.steer.mock.calls[0]?.[0])).not.toContain('hub.example')
-    expect(test.register).toHaveBeenCalledTimes(2)
-    expect(test.register.mock.calls.map(call => call[0].name)).toEqual(['ira_providers', 'ira_route'])
+    expect(test.register).toHaveBeenCalledTimes(3)
+    expect(test.register.mock.calls.map(call => call[0].name)).toEqual(['ira_context', 'ira_providers', 'ira_route'])
   })
 
   it('steers the same session without creating another one', async () => {
@@ -84,6 +88,8 @@ describe('embedded IRA Provider', () => {
   it.each([
     ['ira-intake-router', ['mcp__kusto__kusto_query', 'mcp__voice-dashboard__voice_dashboard_query_metric']],
     ['ira-devloop', []], ['ira-supervisor', []],
+    ['ira-devloop-worker', ['ask_user_question']],
+    ['ira-e2e-validator', ['ask_user_question', 'mcp__ado__wit_work_item', 'mcp__kusto__kusto_query', 'mcp__voice-dashboard__voice_dashboard_query_metric']],
     ['ira-schedule-manager', ['ask_user_question', 'mcp__ado__wit_work_item', 'mcp__kusto__kusto_query', 'mcp__voice-dashboard__voice_dashboard_query_metric']],
   ] as const)('restricts global MCPs for %s', async (preset, denied) => {
     const test = harness()
@@ -129,6 +135,33 @@ describe('embedded IRA Provider', () => {
     expect(test.create).not.toHaveBeenCalled()
     expect(test.resolveAgent).not.toHaveBeenCalled()
     expect(test.steer).not.toHaveBeenCalled()
+  })
+
+  it.each(['missing', 'broken'])('rejects an unavailable child preset before create: %s', async (state) => {
+    const test = harness()
+    if (state === 'missing') test.resolvePreset.mockRejectedValue(new Error('preset not found'))
+    else test.resolvePreset.mockResolvedValue({ id: 'ira-devloop-worker', broken: 'missing plugin' })
+    await expect(execute(test.ctx, { workspaces: { repo: 'workspace-a' } }, {
+      type: 'dsh.command', commandId: 'unavailable-' + state, operation: 'session.open',
+      agentPreset: 'ira-devloop-worker', workspace: 'repo', dshSessionId: 'child',
+      hubMcpUrl: 'https://unused.invalid', sessionCapability: 'cap', text: 'work',
+    })).rejects.toThrow()
+    expect(test.create).not.toHaveBeenCalled()
+    expect(test.resolveAgent).not.toHaveBeenCalled()
+    expect(test.register).not.toHaveBeenCalled()
+  })
+
+  it.each(['session.open', 'session.steer', 'session.cancel'] as const)('refuses a mismatched actual preset on %s before role installation', async (operation) => {
+    const test = harness()
+    test.composedPreset.mockReturnValue('ira-devloop-worker')
+    await expect(execute(test.ctx, { workspaces: { repo: 'workspace-a' } }, {
+      type: 'dsh.command', commandId: 'mismatch-' + operation, operation,
+      agentPreset: 'ira-supervisor', workspace: 'repo', dshSessionId: 'child',
+      hubMcpUrl: 'https://unused.invalid', sessionCapability: 'cap', text: 'work',
+    })).rejects.toThrow('does not match the Session composition')
+    expect(test.register).not.toHaveBeenCalled()
+    expect(test.steer).not.toHaveBeenCalled()
+    expect(test.cancel).not.toHaveBeenCalled()
   })
 
   it('rejects workspaces outside the configured mapping', async () => {

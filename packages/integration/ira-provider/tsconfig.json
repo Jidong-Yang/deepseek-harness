@@ -9,6 +9,8 @@
     { "path": "../../../vendor/cordis" },
     { "path": "../../../vendor/schemastery" },
     { "path": "../../api/session-controller/tsconfig.host.json" },
+    { "path": "../../core/agent" },
+    { "path": "../../preset/agent-presets" },
     { "path": "../../llm/llm" },
     { "path": "../../core/session" },
     { "path": "../../core/tools" },
