@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-api-session-controller'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
@@ -17,14 +17,14 @@ export interface Config {
   hubUrl: string
   providerId: string
   token: string
-  workspaceIds: string[]
+  workspaces: Record<string, string>
   reconnectMs?: number
 }
 export const Config: z<Config> = z.object({
   hubUrl: z.string().required(),
   providerId: z.string().required(),
   token: z.string().required(),
-  workspaceIds: z.array(z.string()).required(),
+  workspaces: z.dict(z.string()).required(),
   reconnectMs: z.number().step(1).min(100).max(60_000).default(1_000),
 })
 
@@ -32,9 +32,8 @@ type Command = {
   type: 'dsh.command'
   commandId: string
   operation: 'session.open' | 'session.steer' | 'session.cancel'
-  role: 'router' | 'owner'
-  agentPreset: 'ira-intake-router' | 'ira-devloop' | 'ira-supervisor'
-  workspaceId: string
+  agentPreset: 'ira-intake-router' | 'ira-devloop' | 'ira-supervisor' | 'ira-schedule-manager'
+  workspace: string
   dshSessionId: string
   hubMcpUrl: string
   sessionCapability: string
@@ -64,11 +63,11 @@ async function connectLoop(ctx: Context, config: Config, signal: AbortSignal): P
 }
 
 async function connectOnce(ctx: Context, config: Config, signal: AbortSignal): Promise<void> {
-  const workspaces = config.workspaceIds.map((id) => {
-    const workspace = ctx.workspaceRegistry.get(WorkspaceId(id))
-    if (!workspace) throw new Error(`workspace "${id}" is not registered`)
-    return { workspaceId: id, cwd: workspace.path }
-  })
+  const resolved = await resolveWorkspaces(ctx, config.workspaces)
+  const workspaces = [...resolved.keys()].map(name => ({ name }))
+  if (!Object.hasOwn(config.workspaces, 'ira-agent-platform')) {
+    throw new Error('Provider must expose the ira-agent-platform workspace')
+  }
   const socket = new WebSocket(config.hubUrl, {
     headers: {
       authorization: `Bearer ${config.token}`,
@@ -78,21 +77,25 @@ async function connectOnce(ctx: Context, config: Config, signal: AbortSignal): P
   const connectorInstanceId = randomUUID()
   signal.addEventListener('abort', () => socket.close(), { once: true })
   await opened(socket)
+  trace('socket.open', { connectorInstanceId, providerId: config.providerId })
   socket.send(JSON.stringify({
     type: 'dsh.provider.hello', providerId: config.providerId, connectorInstanceId,
-    catalog: { workspaces, maxSessions: Number.MAX_SAFE_INTEGER },
+    catalog: { workspaces },
   }))
+  let heartbeatSequence = 0
   const heartbeat = setInterval(() => {
-    if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({
-      type: 'dsh.provider.heartbeat', providerId: config.providerId, connectorInstanceId, observedAt: new Date().toISOString(),
-    }))
+    if (socket.readyState === WebSocket.OPEN) {
+      heartbeatSequence += 1
+      socket.send(JSON.stringify({ type: 'dsh.provider.heartbeat', providerId: config.providerId, connectorInstanceId, sequence: heartbeatSequence, observedAt: new Date().toISOString() }))
+      if (heartbeatSequence % 4 === 0) trace('heartbeat.sent', { connectorInstanceId, sequence: heartbeatSequence })
+    }
   }, 15_000)
   heartbeat.unref()
   try {
     await new Promise<void>((resolve) => {
       socket.addEventListener('message', (event) => {
         const command = JSON.parse(String(event.data)) as HubFrame
-        void executeOnce(ctx, config, command).then(
+        void executeOnce(ctx, { workspaces: Object.fromEntries(resolved) }, command).then(
           () => socket.send(JSON.stringify({ type: 'dsh.command.result', commandId: command.commandId, ok: true })),
           (error: unknown) => socket.send(JSON.stringify({
             type: 'dsh.command.result', commandId: command.commandId, ok: false,
@@ -100,12 +103,23 @@ async function connectOnce(ctx: Context, config: Config, signal: AbortSignal): P
           })),
         )
       })
-      socket.addEventListener('close', () => resolve(), { once: true })
+      socket.addEventListener('close', (event) => { trace('socket.close', { connectorInstanceId, code: event.code, reason: event.reason }); resolve() }, { once: true })
+      socket.addEventListener('error', () => trace('socket.error', { connectorInstanceId }))
     })
   } finally { clearInterval(heartbeat) }
 }
 
-export function executeOnce(ctx: Context, config: Pick<Config, 'workspaceIds'>, command: Command): Promise<void> {
+export async function resolveWorkspaces(ctx: Context, configured: Record<string, string>): Promise<Map<string, string>> {
+  const resolved = new Map<string, string>()
+  for (const [name, directory] of Object.entries(configured)) {
+    let workspace = await ctx.workspaceRegistry.resolveByPath(directory)
+    if (!workspace) workspace = await ctx.workspaceRegistry.create(directory)
+    resolved.set(name, workspace.id)
+  }
+  return resolved
+}
+
+export function executeOnce(ctx: Context, config: Pick<Config, 'workspaces'>, command: Command): Promise<void> {
   if (completedCommands.has(command.commandId)) return Promise.resolve()
   let running = runningCommands.get(command.commandId)
   if (!running) {
@@ -116,9 +130,10 @@ export function executeOnce(ctx: Context, config: Pick<Config, 'workspaceIds'>, 
   return running
 }
 
-export async function execute(ctx: Context, config: Pick<Config, 'workspaceIds'>, command: Command): Promise<void> {
-  if (!config.workspaceIds.includes(command.workspaceId)) throw new Error('workspace is not allowed')
-  const workspace = ctx.workspaceRegistry.get(WorkspaceId(command.workspaceId))
+export async function execute(ctx: Context, config: Pick<Config, 'workspaces'>, command: Command): Promise<void> {
+  const workspaceId = config.workspaces[command.workspace]
+  if (!workspaceId) throw new Error('workspace is not exposed')
+  const workspace = ctx.workspaceRegistry.get(WorkspaceId(workspaceId))
   if (!workspace) throw new Error('workspace is not registered')
   const sessionId = SessionId(command.dshSessionId)
   if (command.operation === 'session.open') {
@@ -128,7 +143,7 @@ export async function execute(ctx: Context, config: Pick<Config, 'workspaceIds'>
   }
   const resolved = await ctx.sessionController.resolveAgent(sessionId)
   if ('error' in resolved) throw resolved.error
-  if (command.operation === 'session.open') installHubTools(resolved.agent.ctx, command)
+  ensureHubTools(resolved.agent.ctx, resolved.agent, command)
   if (command.operation === 'session.cancel') {
     resolved.agent.cancel({ kind: 'user' }, { keepInbox: true })
     return
@@ -137,27 +152,63 @@ export async function execute(ctx: Context, config: Pick<Config, 'workspaceIds'>
   resolved.agent.steer(createUserMessage({ content: [{ type: 'text', text: command.text }], source: { kind: 'user' } }))
 }
 
+function ensureHubTools(ctx: Context, agent: unknown, command: Command): void {
+  const marker = command.agentPreset === 'ira-intake-router' ? 'ira_route'
+    : command.agentPreset === 'ira-schedule-manager' ? 'ira_schedule_context' : 'ira_context'
+  if (!ctx.tools.get(marker, agent as never)) installHubTools(ctx, command)
+  restrictPresetTools(ctx, agent, command.agentPreset)
+}
+
+const restrictedNames = new WeakMap<object, Set<string>>()
+function restrictPresetTools(ctx: Context, agent: unknown, preset: Command['agentPreset']): void {
+  const visibleMcp = preset === 'ira-intake-router' ? ['mcp__ado__']
+    : preset === 'ira-devloop' || preset === 'ira-supervisor' ? ['mcp__ado__', 'mcp__kusto__', 'mcp__voice-dashboard__'] : []
+  const deny = ctx.tools.schemas().map(tool => tool.name).filter(name =>
+    (name === 'ask_user_question' && preset === 'ira-schedule-manager')
+    || (name.startsWith('mcp__') && !visibleMcp.some(prefix => name.startsWith(prefix))))
+  const key = agent as object
+  const known = restrictedNames.get(key) ?? new Set<string>()
+  const added = deny.filter(name => !known.has(name))
+  if (added.length) { ctx.tools.restrict({ deny: added }); added.forEach(name => known.add(name)); restrictedNames.set(key, known) }
+}
+
 function installHubTools(ctx: Context, command: Command): void {
   const call = async (method: string, body: Record<string, unknown>) => {
+    const requestId = `tool-${command.commandId}-${method}-${Date.now()}`
+    trace('tool.request', { requestId, commandId: command.commandId, method, sessionId: command.dshSessionId, capabilityHash: shortHash(command.sessionCapability) })
     const response = await fetch(command.hubMcpUrl, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-ira-session-capability': command.sessionCapability },
+      headers: { 'content-type': 'application/json', 'x-ira-session-capability': command.sessionCapability, 'x-ira-request-id': requestId },
       body: JSON.stringify({ method, ...body }),
     })
     const result = await response.json() as { ok: boolean; value?: unknown; error?: string }
+    trace('tool.response', { requestId, commandId: command.commandId, method, status: response.status, ok: response.ok && result.ok })
     if (!response.ok || !result.ok) throw new Error(result.error ?? `Hub returned HTTP ${response.status}`)
     return JSON.parse(JSON.stringify(result.value ?? {})) as JsonValue
   }
   const output = { schema: { type: 'json' as const }, render: (_args: unknown, value: unknown) => [{ type: 'text' as const, text: JSON.stringify(value) }] }
-  if (command.role === 'router') {
+  if (command.agentPreset === 'ira-intake-router') {
+    ctx.tools.register(defineTool({ name: 'ira_providers', description: 'List online DSH Providers and their exposed workspace names.', parameters: {}, output, execute: () => call('providers', {}) }))
     ctx.tools.register(defineTool({
       name: 'ira_route', description: 'Route this new Teams post exactly once.',
       parameters: {
         mode: { type: 'string', required: true, enum: ['direct', 'supervisor', 'schedule'] },
-        providerId: { type: 'string' }, workspaceId: { type: 'string' }, objective: { type: 'string' },
-        cadence: { type: 'string' }, prompt: { type: 'string' },
-      }, output, execute: args => call('route', args),
+        providerId: { type: 'string', description: 'Required for direct/supervisor; copy an exact providerId from ira_providers.' },
+        workspace: { type: 'string', description: 'Required for direct/supervisor; copy an exact workspace name from ira_providers.' },
+        objective: { type: 'string', description: 'Required and non-empty for direct/supervisor. Never use prompt for these modes.' },
+      }, output, execute: (args) => {
+        return call('route', args)
+      },
     }))
+    return
+  }
+  if (command.agentPreset === 'ira-schedule-manager') {
+    ctx.tools.register(defineTool({ name: 'ira_schedule_context', description: 'Read the schedule bound to this management thread.', parameters: {}, output, execute: () => call('schedule.context', {}) }))
+    ctx.tools.register(defineTool({ name: 'ira_schedule_create', description: 'Create this schedule definition.', parameters: { title: { type: 'string', required: true }, prompt: { type: 'string', required: true }, cadence: { type: 'string', required: true }, timeZone: { type: 'string' } }, output, execute: args => call('schedule.create', args) }))
+    ctx.tools.register(defineTool({ name: 'ira_schedule_blocker', description: 'Ask for required Human input in the original Teams management thread. Use instead of ask_user_question.', parameters: { text: { type: 'string', required: true } }, output, execute: args => call('schedule.blocker', args) }))
+    ctx.tools.register(defineTool({ name: 'ira_schedule_confirm', description: 'Send exactly one concise management acknowledgement to the original Teams thread after a successful mutation.', parameters: { text: { type: 'string', required: true } }, output, execute: args => call('schedule.confirm', args) }))
+    ctx.tools.register(defineTool({ name: 'ira_schedule_update', description: 'Update future occurrences only.', parameters: { expectedRevision: { type: 'number', required: true }, title: { type: 'string' }, prompt: { type: 'string' }, cadence: { type: 'string' }, timeZone: { type: 'string' } }, output, execute: args => call('schedule.update', args) }))
+    for (const operation of ['pause', 'resume', 'delete', 'restore'] as const) ctx.tools.register(defineTool({ name: `ira_schedule_${operation}`, description: `${operation} this schedule.`, parameters: { expectedRevision: { type: 'number', required: true } }, output, execute: args => call(`schedule.${operation}`, args) }))
     return
   }
   ctx.tools.register(defineTool({ name: 'ira_context', description: 'Read this Teams root binding.', parameters: {}, output, execute: () => call('context', {}) }))
@@ -169,6 +220,9 @@ function installHubTools(ctx: Context, command: Command): void {
   }
 }
 
+
+function shortHash(value: string): string { return createHash('sha256').update(value).digest('hex').slice(0, 12) }
+function trace(event: string, fields: Record<string, unknown>): void { console.log(JSON.stringify({ component: 'ira-provider', event, pid: process.pid, at: new Date().toISOString(), ...fields })) }
 
 function opened(socket: WebSocket): Promise<void> {
   return new Promise((resolve, reject) => {
