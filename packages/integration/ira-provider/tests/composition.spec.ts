@@ -106,7 +106,7 @@ it('rejects an invalid Hub frame before Session mutation, reconnects and deliver
   await vi.waitFor(() => {
     expect(connections[0]?.frames[0]).toMatchObject({
       type: 'dsh.provider.hello', providerId: 'composition-provider',
-      catalog: { workspaces: [{ name: 'ira-agent-platform' }] },
+      catalog: { workspaces: [{ name: 'ira-agent-platform' }], agentPresets: ['ira-devloop'] },
     })
   }, { timeout: 10_000 })
   const command = {

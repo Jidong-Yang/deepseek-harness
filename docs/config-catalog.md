@@ -853,7 +853,7 @@ Source: [`packages/runtime-diagnostics/invariants/src/index.ts:15`](../packages/
 
 ## `@deepseek-ai/dsh-ira-provider`
 
-Requires: `sessionController` · `workspaceRegistry`
+Requires: `sessionController` · `workspaceRegistry` · `agentPresets` · `tools`
 
 ```ts config-catalog
 /** Connection identity and local workspace mapping for one outbound Provider. */
@@ -871,7 +871,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/integration/ira-provider/src/index.ts:17`](../packages/integration/ira-provider/src/index.ts)
+Source: [`packages/integration/ira-provider/src/index.ts:19`](../packages/integration/ira-provider/src/index.ts)
 
 <a id="deepseek-aidsh-jobs-local"></a>
 

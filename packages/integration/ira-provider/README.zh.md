@@ -24,7 +24,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用此包
 
-将此函数插件挂载为 IRA 专属的 Host composition 条目。Host 提供 SessionController 和 WorkspaceRegistry，外部 Hub 提供命令路由与认证。插件不启动替代 Web server 或 MCP server。
+将此函数插件挂载为 IRA 专属的 Host composition 条目。Host 提供 SessionController、WorkspaceRegistry、AgentPresets 和 Tools，外部 Hub 提供命令路由与认证。插件不启动替代 Web server 或 MCP server。
 
 | 字段 | 默认值 | 含义 |
 |---|---|---|
@@ -33,6 +33,8 @@ kind: "package-reference"
 | `token` | 必填 | 仅用于 Hub 连接的 bearer 凭据。 |
 | `workspaces` | 必填 | 稳定 workspace 名称到本地路径的映射；包含 `ira-agent-platform`。 |
 | `reconnectMs` | `1000` | 连接失败或关闭后的重试间隔。 |
+
+每次连接公布 `catalog.agentPresets`：`ira-intake-router`、`ira-devloop`、`ira-supervisor`、`ira-schedule-manager`、`ira-devloop-worker` 和 `ira-e2e-validator` 中已安装且健康的 ID。Open 命令重新检查安装与健康状态；每条命令必须匹配 Session 的实际 composition。缺失的 preset 不会回退到默认值。
 
 无效命令帧以 1008 关闭连接，不记录原始载荷。Provider 通过同一循环重连。合法命令执行失败时返回失败结果，由 Hub 决定是否重试。发送结果时发生传输错误，不能据此判断 Hub 是否已经收到结果。
 
@@ -44,7 +46,7 @@ kind: "package-reference"
 <details>
 <summary>实现细节</summary>
 
-[入口模块](src/index.ts) 解析本地 workspace，拥有出站 socket，并通过 SessionController 分派命令。Router scope 继承 ADO 工具；Devloop 和 Supervisor 继承 ADO、Kusto、Voice Dashboard 工具；Schedule Manager 不继承这些 MCP 工具，且不能调用 `ask_user_question`。既有注册表通知刷新名称限制，执行 guard 使用同一判断。Agent scope 释放时清理策略 effect。
+[入口模块](src/index.ts) 解析本地 workspace，拥有出站 socket，并通过 SessionController 分派命令。Router scope 继承 ADO 工具；Devloop、Supervisor 和 Devloop Worker 继承 ADO、Kusto、Voice Dashboard 工具；Schedule Manager 和 E2E Validator 不继承这些 MCP 工具。Schedule Manager 与两个 child 角色不能调用 `ask_user_question`。Supervisor 只通过 Hub child-task 路径委派，不使用继承的原生委派。Child scope 隐藏继承的委派与 owner 报告工具，并拒绝执行这些工具。这是工具级策略，不是 OS sandbox。既有注册表通知刷新名称限制，执行 guard 使用同一判断。Agent scope 释放时清理策略 effect。
 
 </details>
 
@@ -53,6 +55,7 @@ kind: "package-reference"
 <a id="further-exploration"></a>
 ## 进一步阅读
 
+- [普通 child Session 决策](../../../.agents/notes/implemented/feature/2026-09-07-ira-child-session-bindings.zh.md)
 - [加固决策](../../../.agents/notes/implemented/bug-fix/2026-09-06-ira-provider-hardening.zh.md)
 - [工具注册表](../../core/tools/README.zh.md)
 - [Session 持久化](../../session/session-persistence/README.zh.md)
@@ -66,7 +69,7 @@ kind: "package-reference"
 
 #### 模型看到什么
 
-选定的 preset 接收其 Hub 工具 schema（例如 Router 的 `ira_route` 和 Owner 的 `ira_context`）与投递的用户文本。Session capability 和 Hub 工具 URL 保留在执行闭包中，不进入用户消息文本。工具描述和动态结果由[入口模块](src/index.ts)定义；不允许的 MCP 工具不会进入 schema assembly，执行时也会被拒绝。
+每个合法 Session 都接收 `ira_context`，角色工具由实际 composition 决定。Supervisor 另有 `ira_providers`、owner 报告工具及 `ira_child_task`（`create`、`continue`、`settle`、`resume`）。Child 角色只有 `ira_context` 和 `ira_child_report`（`progress`、`blocker`、`complete`）作为 Hub 工具。Child 完成报告既不结算 child，也不结算 owner；只有所属 Supervisor 决定是否接受。Child 是由 SessionController 创建的普通 Session，拥有独立 preset 与历史；只有 Hub 持有父子关系，不使用原生 subagent 继承。Session capability 和 Hub 工具 URL 保留在执行闭包中，不进入用户消息文本。HTTP 身份来自现有 Session/tool-call ID，fetch 遵循工具 signal；额外参数不能覆盖绑定的 Hub 方法。这不是持久化的 Provider 执行收据。工具描述和动态结果由[入口模块](src/index.ts)定义；不允许的 MCP 工具不会进入 schema assembly，执行时也会被拒绝。
 
 #### Token 影响
 

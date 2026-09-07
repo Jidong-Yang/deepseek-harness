@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/integration/ira-provider/README.md
-README.md: ffa1c5620fad6b99ac3ede39f5490f2daa5847ae
-README.zh.md: 3833304d830f8bc26d14322105e274f92fe603e2
+README.md: 0989ffcc1d79f6315c41a801ab8e493f29c5ccf6
+README.zh.md: 19e721b64963887e600994f7a91b705d7ace692b
