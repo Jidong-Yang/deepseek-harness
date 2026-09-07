@@ -6,6 +6,9 @@
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
+import { consumeHostReadiness } from './windows-host-ready.ts'
+
+const publishReady = consumeHostReadiness()
 
 const dshHome = process.argv[2]
 if (dshHome === undefined || dshHome.length === 0) {
@@ -21,7 +24,8 @@ process.argv = [
   'web',
   '--no-open',
 ]
-await import('../apps/cli/src/bin.ts')
+const cli = await import('../apps/cli/src/bin.ts')
+if (publishReady !== undefined) cli.profileReady?.onReady(publishReady)
 
 async function loadOptionalEnvironment(file: string): Promise<void> {
   let content: string
