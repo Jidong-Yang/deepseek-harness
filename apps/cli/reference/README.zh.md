@@ -87,6 +87,15 @@ dsh web --help
 
 `DSH_TOOLS_MODE` 为进程选择 `native`、`ptc` 或 `both`；其他值会导致启动失败。随附的 `minimal` agent preset 会保留该部署的呈现方式，将完整系统提示词固定为 `You are a helpful software engineer assistant.`，并且仅组合持久 `bash` 和 `str_replace_editor`。创建 Web 会话时请选择极简模式；该 agent 不包含任何其他提示词段落或面向模型的插件，而共享的浏览器、workspace、持久化、沙箱与权限宿主保持不变。
 
+<a id="windows-supervisor-startup-record"></a>
+### Windows 监督进程启动记录
+
+[`scripts/run-windows-web.ts`](../../../scripts/run-windows-web.ts) 可选地读取 `DSH_HOST_READY_FILE` 与 `DSH_HOST_READY_NONCE`，随后在导入 Host 或获取其环境快照之前删除两者。两者均缺失时保持常规启动行为；仅提供其中之一会在启动前失败。nonce 必须是恰好 32 位的十六进制 UUID；目标必须是最多 240 个字符、带本地盘符的 Windows 绝对路径，不包含路径回退、设备名、备用数据流或链接形式的祖先目录，并位于调用方创建的私有、稳定的本次尝试目录中。已有目标会被拒绝。
+
+运行器订阅现有启动器的 `AppReady` 状态，该状态由 CLI 模块以 `profileReady` 导出。只有配置树激活成功且启动器设置完成后才提交该状态；模块导入结束、端口绑定、打印 URL 或连接 Hub 均不代表此状态成立。非致命 MCP 启动失败可以正常结束而不阻止此信号；首次连接尝试仍遵循所配置插件的启动行为。
+
+同步发布器写入不超过 1 KiB 的 UTF-8 JSON，且仅包含 `schemaVersion: 1`、`nonce`、`pid`、`state: "ready"` 和规范 UTC 时间 `at`。独占创建的临时文件在刷写后通过同目录硬链接发布，原子地拒绝覆盖竞争创建的文件或链接。本地文件系统必须支持硬链接；验证和发布失败只输出静态诊断，不包含请求值。监督进程负责目录 ACL、每次尝试的唯一 nonce、记录验证、清理和进程/Job 存活判断。此记录表示启动已完成，而非持续健康状态；其中的 Host PID 仅用于诊断，不授予接管或终止进程的权限。不包含 Session 数据或遥测。
+
 ## 共享部署行为
 
 基础组合包挂载原生 DeepSeek 适配器、settings 与凭据提供方、稳定的 `web_search`、仅限公网的 HTTP fetch 提供方，以及按反馈门控的会话遥测。提供方凭据依次从继承环境、`$DSH_HOME/.credentials.yaml`、调用目录的 `.env` 和 `$DSH_HOME/.env` 解析；受管文档从不物化进 `process.env`，而两个 `.env` 文件都是普通启动环境层。搜索使用 `DEEPSEEK_API_KEY` 并接受 `DEEPSEEK_SEARCH_BASE_URL`。Web app 的 `cordis`、`ptc` 与 `standard` agent preset 会在所有 sandbox 和审批模式下暴露 `web_fetch`，无需逐次确认；提供方仍会在连接前拒绝非公开目的地址。

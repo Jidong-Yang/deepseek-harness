@@ -10,6 +10,10 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { loadLayeredEnv } from '@deepseek-ai/dsh-app-boot'
 import { parseDshArgs } from './args.ts'
+import type { AppReady } from '@deepseek-ai/dsh-cmdline'
+
+/** Existing launcher readiness latch for an importing process owner; never exposes the Host context. */
+export let profileReady: AppReady | undefined
 
 // Both the source tree (apps/cli/src) and the bundled bin (apps/cli/lib) sit
 // one directory under apps/cli, so the checked-in manifest resolves with the
@@ -26,12 +30,13 @@ const invocation = parseDshArgs(process.argv.slice(2), readVersion())
 switch (invocation.mode) {
   case 'profile': {
     const { runProfile } = await import('./profile-boot.ts')
-    await runProfile({
+    const { ctx } = await runProfile({
       environment: loadLayeredEnv('dsh'),
       profile: invocation.profile,
       patchFiles: invocation.patches,
       args: invocation.args,
     })
+    profileReady = ctx.get('appReady')
     break
   }
   case 'plugin': {
