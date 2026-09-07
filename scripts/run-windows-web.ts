@@ -7,7 +7,9 @@ import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { consumeHostReadiness } from './windows-host-ready.ts'
+import { consumeLocalLaunchLink } from './windows-local-link.ts'
 
+const publishLink = consumeLocalLaunchLink()
 const publishReady = consumeHostReadiness()
 
 const dshHome = process.argv[2]
@@ -25,7 +27,15 @@ process.argv = [
   '--no-open',
 ]
 const cli = await import('../apps/cli/src/bin.ts')
-if (publishReady !== undefined) cli.profileReady?.onReady(publishReady)
+if (publishReady !== undefined) {
+  cli.profileReady?.onReady(() => {
+    publishReady()
+    const url = publishLink === undefined ? undefined : cli.profileLocalUrl?.()
+    if (url !== undefined) {
+      void publishLink?.(url).catch(() => { console.error('run-windows-web: local link handoff unavailable') })
+    }
+  })
+}
 
 async function loadOptionalEnvironment(file: string): Promise<void> {
   let content: string

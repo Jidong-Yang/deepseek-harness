@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-07-windows-host-startup-readiness.md
-2026-09-07-windows-host-startup-readiness.md: 37f158cf56bae13a297731b1bf56e7fe2ec439db
-2026-09-07-windows-host-startup-readiness.zh.md: 9493f6c6dceccb845e4cb39288fae1258b3cf47c
+2026-09-07-windows-host-startup-readiness.md: eb6387219b23d3338ebf6c331e7f798f29d59f74
+2026-09-07-windows-host-startup-readiness.zh.md: 47c1bb360617a0c4134a71cb13bb4ca6a3dab91d

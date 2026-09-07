@@ -5,6 +5,7 @@ import { createRequire } from 'node:module'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { randomUUID } from 'node:crypto'
 import { execa } from 'execa'
+import { createServer } from 'node:net'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { consumeHostReadiness } from './windows-host-ready.ts'
 
@@ -103,7 +104,7 @@ describe.skipIf(process.platform !== 'win32')('Windows atomic ready file', () =>
   })
 })
 
-function fixture(mode: 'ready' | 'fail' | 'exit' | 'dispose' | 'write-fail' = 'ready') {
+function fixture(mode: 'ready' | 'fail' | 'exit' | 'dispose' | 'write-fail' | 'link' = 'ready', pipe?: string) {
   const home = scratch()
   const profile = join(home, 'profiles/web')
   const bundle = join(profile, 'node_modules/dsh-readiness-fixture')
@@ -125,15 +126,16 @@ function fixture(mode: 'ready' | 'fail' | 'exit' | 'dispose' | 'write-fail' = 'r
     "export const name = 'readiness-fixture'",
     'export async function apply(ctx) {',
     '  const home = process.env.DSH_HOME',
-    '  const keys = ["DSH_HOST_READY_FILE", "DSH_HOST_READY_NONCE"]',
+    '  const keys = ["DSH_HOST_READY_FILE", "DSH_HOST_READY_NONCE", "DSH_HOST_LOCAL_LINK_PIPE"]',
     '  const snapshot = ctx.get("launchEnvironment")',
     '  if (!snapshot) throw new Error("fixture snapshot missing")',
-    '  const child = spawnSync(process.execPath, ["-e", "process.stdout.write(JSON.stringify([process.env.DSH_HOST_READY_FILE,process.env.DSH_HOST_READY_NONCE]))"], { encoding: "utf8" })',
+    '  const child = spawnSync(process.execPath, ["-e", "process.stdout.write(JSON.stringify([process.env.DSH_HOST_READY_FILE,process.env.DSH_HOST_READY_NONCE,process.env.DSH_HOST_LOCAL_LINK_PIPE]))"], { encoding: "utf8" })',
     '  writeFileSync(join(home, "environment.json"), JSON.stringify({ ambient: keys.map(k => process.env[k] ?? null), snapshot: keys.map(k => snapshot.get(k) ?? null), child: JSON.parse(child.stdout) }))',
     '  const timer = setInterval(() => { if (existsSync(join(home, "stop"))) process.emit("SIGTERM") }, 20)',
     '  ctx.effect(() => () => clearInterval(timer))',
     '  writeFileSync(join(home, "activating"), "yes")',
     '  while (!existsSync(join(home, "release"))) await new Promise(r => setTimeout(r, 10))',
+    mode === 'link' ? '  ctx.provide("webServer", { port: 54321 }); ctx.provide("connection", { authenticatedUrl: base => base + "/?token=fixture_boot_link_token_0123456789" })' : '',
     mode === 'fail' ? '  throw new Error("fixture activation failed")' : '',
     mode === 'exit' ? '  ctx.appExit(0)' : '',
     mode === 'dispose' ? '  void ctx.root.fiber.dispose()' : '',
@@ -143,7 +145,7 @@ function fixture(mode: 'ready' | 'fail' | 'exit' | 'dispose' | 'write-fail' = 'r
   writeFileSync(join(bundle, 'cordis.patch.yml'), '- insert:\n    - id: readiness-fixture\n      name: ' + pathToFileURL(join(bundle, 'plugin.mjs')).href + '\n')
   const child = execa(process.execPath, ['--import', loader, runner, home], {
     cwd: home, input: '', timeout: 30_000, killSignal: 'SIGKILL', reject: false,
-    env: { DSH_HOME: home, DSH_HOST_READY_FILE: file, DSH_HOST_READY_NONCE: nonce, TSX_TSCONFIG_PATH: join(repo, 'tsconfig.json') },
+    env: { DSH_HOME: home, DSH_HOST_READY_FILE: file, DSH_HOST_READY_NONCE: nonce, DSH_HOST_LOCAL_LINK_PIPE: pipe, TSX_TSCONFIG_PATH: join(repo, 'tsconfig.json') },
   })
   return { home, file, child }
 }
@@ -157,7 +159,7 @@ describe.skipIf(process.platform !== 'win32')('real Windows runner and disposabl
     try {
       await waitFile(join(f.home, 'activating'))
       expect(existsSync(f.file)).toBe(false)
-      expect(JSON.parse(readFileSync(join(f.home, 'environment.json'), 'utf8'))).toEqual({ ambient: [null, null], snapshot: [null, null], child: [null, null] })
+      expect(JSON.parse(readFileSync(join(f.home, 'environment.json'), 'utf8'))).toEqual({ ambient: [null, null, null], snapshot: [null, null, null], child: [null, null, null] })
       writeFileSync(join(f.home, 'release'), 'go')
       await waitFile(f.file)
       const record = JSON.parse(readFileSync(f.file, 'utf8')) as { nonce: string; pid: number }
@@ -166,6 +168,32 @@ describe.skipIf(process.platform !== 'win32')('real Windows runner and disposabl
       writeFileSync(join(f.home, 'stop'), 'stop')
       expect((await f.child).exitCode).toBe(0)
     } finally { f.child.kill('SIGKILL'); await f.child }
+  }, 35_000)
+  it('hands the local URL off only after AppReady without persisting it or inheriting bootstrap variables', async () => {
+    const pipe = 'ira-dsh-link-' + randomUUID().replaceAll('-', '')
+    const server = createServer()
+    let packet = ''
+    server.on('connection', (socket) => {
+      socket.setEncoding('utf8')
+      socket.on('data', (text: string) => { packet += text })
+      socket.once('end', () => socket.end())
+    })
+    await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen('\\\\.\\pipe\\' + pipe, resolve) })
+    const f = fixture('link', pipe)
+    try {
+      await waitFile(join(f.home, 'activating'))
+      expect(packet).toBe('')
+      expect(JSON.parse(readFileSync(join(f.home, 'environment.json'), 'utf8'))).toEqual({ ambient: [null, null, null], snapshot: [null, null, null], child: [null, null, null] })
+      writeFileSync(join(f.home, 'release'), 'go')
+      await waitFile(f.file)
+      await vi.waitFor(() => { expect(packet).not.toBe('') }, { timeout: 5000 })
+      expect(JSON.parse(packet)).toEqual({ schemaVersion: 1, nonce, pid: f.child.pid, url: 'http://127.0.0.1:54321/?token=fixture_boot_link_token_0123456789' })
+      expect(readFileSync(f.file, 'utf8')).not.toContain('fixture_boot_link_token')
+      writeFileSync(join(f.home, 'stop'), 'stop')
+      const result = await f.child
+      expect(result.exitCode).toBe(0)
+      expect(result.stdout + result.stderr).not.toContain('fixture_boot_link_token')
+    } finally { f.child.kill('SIGKILL'); await f.child; await new Promise<void>(resolve => server.close(() => { resolve() })) }
   }, 35_000)
   it.each(['fail', 'exit', 'dispose', 'write-fail'] as const)('never signals successful boot for %s', async (mode) => {
     const f = fixture(mode)
