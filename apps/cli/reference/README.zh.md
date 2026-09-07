@@ -96,6 +96,8 @@ dsh web --help
 
 同步发布器写入不超过 1 KiB 的 UTF-8 JSON，且仅包含 `schemaVersion: 1`、`nonce`、`pid`、`state: "ready"` 和规范 UTC 时间 `at`。独占创建的临时文件在刷写后通过同目录硬链接发布，原子地拒绝覆盖竞争创建的文件或链接。本地文件系统必须支持硬链接；验证和发布失败只输出静态诊断，不包含请求值。监督进程负责目录 ACL、每次尝试的唯一 nonce、记录验证、清理和进程/Job 存活判断。此记录表示启动已完成，而非持续健康状态；其中的 Host PID 仅用于诊断，不授予接管或终止进程的权限。不包含 Session 数据或遥测。
 
+可选的 `DSH_HOST_LOCAL_LINK_PIPE` 请求独立的本地浏览器链接交接。运行器在获取 Host 环境快照前移除该变量；它要求启动 nonce，且管道名必须为 `ira-dsh-link-` 加 32 位小写十六进制字符。在 AppReady 提交且就绪记录发布成功后，CLI 的 `profileLocalUrl` getter（读取函数）提供现有的带认证信息的 `127.0.0.1` 根 URL。Node 发送器只发送一次，向调用方持有的 Windows 当前用户管道写入最多 2048 字节的 UTF-8 数据（`schemaVersion`、`nonce`、`pid`、`url`），期限为两秒。认证 URL 不加入就绪文件或诊断输出。本地监督进程验证 nonce、PID 和端口后才显示链接；不得上传或持久保存该控制台。交接缺失或不可达不会撤销 Host 就绪状态。参见 [`windows-local-link.ts`](../../../scripts/windows-local-link.ts)。
+
 ## 共享部署行为
 
 基础组合包挂载原生 DeepSeek 适配器、settings 与凭据提供方、稳定的 `web_search`、仅限公网的 HTTP fetch 提供方，以及按反馈门控的会话遥测。提供方凭据依次从继承环境、`$DSH_HOME/.credentials.yaml`、调用目录的 `.env` 和 `$DSH_HOME/.env` 解析；受管文档从不物化进 `process.env`，而两个 `.env` 文件都是普通启动环境层。搜索使用 `DEEPSEEK_API_KEY` 并接受 `DEEPSEEK_SEARCH_BASE_URL`。Web app 的 `cordis`、`ptc` 与 `standard` agent preset 会在所有 sandbox 和审批模式下暴露 `web_fetch`，无需逐次确认；提供方仍会在连接前拒绝非公开目的地址。

@@ -11,9 +11,13 @@ import { fileURLToPath } from 'node:url'
 import { loadLayeredEnv } from '@deepseek-ai/dsh-app-boot'
 import { parseDshArgs } from './args.ts'
 import type { AppReady } from '@deepseek-ai/dsh-cmdline'
+import type {} from '@deepseek-ai/dsh-web-app'
 
 /** Existing launcher readiness latch for an importing process owner; never exposes the Host context. */
 export let profileReady: AppReady | undefined
+
+/** Local process-owner display only; never include this credential-bearing URL in diagnostics. */
+export let profileLocalUrl: (() => string | undefined) | undefined
 
 // Both the source tree (apps/cli/src) and the bundled bin (apps/cli/lib) sit
 // one directory under apps/cli, so the checked-in manifest resolves with the
@@ -37,6 +41,13 @@ switch (invocation.mode) {
       args: invocation.args,
     })
     profileReady = ctx.get('appReady')
+    profileLocalUrl = () => {
+      const server = ctx.get('webServer')
+      const connection = ctx.get('connection')
+      return server === undefined || connection === undefined
+        ? undefined
+        : connection.authenticatedUrl(`http://127.0.0.1:${String(server.port)}`)
+    }
     break
   }
   case 'plugin': {

@@ -10,9 +10,11 @@ A Windows supervisor needs evidence that its Host attempt completed startup with
 
 ## Decision
 
-The Windows runner consumes an optional attempt-specific file and nonce before Host environment capture. The CLI exports only its existing `AppReady` handle; the runner subscribes after import and publishes only when that launcher-owned latch commits. The [CLI reference](../../../../apps/cli/reference/README.md#windows-supervisor-startup-record) owns the inputs, JSON fields and filesystem requirements. There is no new plugin, profile, telemetry event or readiness state owner.
+The Windows runner consumes an optional attempt-specific file and nonce before Host environment capture. The CLI exposes its existing `AppReady` handle and a narrow local authenticated-URL getter, never the Host context. The runner subscribes after import and publishes only when that launcher-owned latch commits. The [CLI reference](../../../../apps/cli/reference/README.md#windows-supervisor-startup-record) owns the inputs, JSON fields and filesystem requirements. There is no new plugin, profile, telemetry event or readiness state owner.
 
 Publication uses an exclusively created and flushed temporary file followed by a hard link to an absent destination. Hard-link creation gives atomic visibility without overwriting a raced file or link. The caller owns a private, stable attempt directory; ancestor inspection is not a security guarantee against an administrator who replaces that directory concurrently.
+
+Authenticated browser URLs use an optional, nonce-bound current-user pipe rather than the readiness file or general stdout. The one-shot bounded sender runs only after AppReady publication and never echoes credentials in failures. This gives the supervising local console a usable entry without retaining Host/Session output or putting credentials into operational reports.
 
 ## Alternatives considered
 

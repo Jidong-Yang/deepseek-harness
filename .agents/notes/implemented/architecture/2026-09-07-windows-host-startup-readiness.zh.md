@@ -10,9 +10,11 @@ Windows 监督进程需要确认其 Host 启动尝试已完成，且不能解析
 
 ## Decision
 
-Windows 运行器在获取 Host 环境快照之前读取并移除可选的、仅属于本次尝试的文件路径与 nonce。CLI（命令行界面）仅导出现有 `AppReady` 句柄；运行器在导入后订阅，且只在启动器持有的状态提交后发布记录。[CLI 参考](../../../../apps/cli/reference/README.zh.md#windows-supervisor-startup-record)定义输入、JSON 字段和文件系统要求。不引入新的插件、profile、遥测事件或就绪状态持有者。
+Windows 运行器在获取 Host 环境快照之前读取并移除可选的、仅属于本次尝试的文件路径与 nonce。CLI（命令行界面）提供现有 `AppReady` 句柄和受限的本地认证 URL getter（读取函数），不导出 Host context。运行器在导入后订阅，且只在启动器持有的状态提交后发布记录。[CLI 参考](../../../../apps/cli/reference/README.zh.md#windows-supervisor-startup-record)定义输入、JSON 字段和文件系统要求。不引入新的插件、profile、遥测事件或就绪状态持有者。
 
 发布器先独占创建并刷写临时文件，再为尚不存在的目标创建硬链接。硬链接创建操作提供原子可见性，不会覆盖竞争创建的文件或链接。调用方负责私有、稳定的尝试目录；祖先目录检查不能防御管理员并发替换该目录。
+
+浏览器认证 URL 通过可选的、绑定 nonce 的当前用户管道交接，而不是写入就绪文件或通用 stdout。发送器在 AppReady 发布后只发送一次，并限制数据量与期限；失败时不回显凭据。这样本地监督控制台可以提供可用入口，而不保留 Host/Session 输出，也不把凭据放入运维报告。
 
 ## Alternatives considered
 
