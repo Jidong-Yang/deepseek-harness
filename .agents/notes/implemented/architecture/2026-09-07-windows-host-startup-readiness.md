@@ -20,7 +20,7 @@ Authenticated browser URLs use an optional, nonce-bound current-user pipe rather
 
 **Publish after import or HTTP success.** Rejected because a disposed tree can return normally, and an HTTP carrier can listen before sibling activation and launcher setup finish.
 
-**Use the printed Web URL or Hub heartbeat.** Rejected because output can contain credentials and is not a machine startup record; Hub availability describes a different component. The [browser handoff decision](../feature/2026-08-12-open-ready-web-ui.md) remains separate and unchanged.
+**Use the printed Web URL or Hub heartbeat.** Rejected because output can contain credentials and is not a machine startup record; Hub availability describes a different component. The [browser handoff decision](../../archived/feature/2026-08-12-open-ready-web-ui.md) remains separate and unchanged.
 
 **Rename over the final path.** Rejected because replacement semantics can overwrite an existing or raced destination. A same-directory hard link requires local filesystem support but refuses replacement atomically.
 
