@@ -10,7 +10,7 @@ The embedded IRA Provider shares a process with DSH Web. An uncaught frame parse
 
 ## Decision
 
-The [Provider](../../../../packages/integration/ira-provider/src/index.ts) validates commands before creating or steering Sessions. Invalid network frames close the connection with a protocol error; socket errors settle the connection loop, which owns retry. Disconnection releases heartbeat and abort listeners. Reply sends contain transport failures rather than creating detached rejected promises.
+The [Provider](https://github.com/Jidong-Yang/deepseek-harness/blob/b5a32b12c6bf0dea4d1c26ef1f3db50172e1343d/packages/integration/ira-provider/src/index.ts) validates commands before creating or steering Sessions. Invalid network frames close the connection with a protocol error; socket errors settle the connection loop, which owns retry. Disconnection releases heartbeat and abort listeners. Reply sends contain transport failures rather than creating detached rejected promises.
 
 Agent-scoped restrictions follow the existing unfiltered tools/change notification. An execution guard applies the same predicate at dispatch. The registry and Agent scope own those effects; no shared MCP broker, new tool-filter API, or additional recovery service is introduced.
 
