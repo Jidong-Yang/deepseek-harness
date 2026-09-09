@@ -36,6 +36,12 @@ export function apply(ctx: Context, config: { workspacePath: string; rejectReque
       maxImagePixels: 1024, maxImageDimension: 32, mediaTypes: ['image/png'],
     },
   } as unknown as Context['attachments'])
+  ctx.provide('fileUploads', {
+    registerAgentResolver: () => () => {},
+    resolve: () => undefined,
+    bindPrompt: () => ({ commit: () => {}, [Symbol.dispose]: () => {} }),
+    retirePrompt: () => {},
+  } as unknown as Context['fileUploads'])
   // An admitted steer still exercises the real inbox and durable turn lifecycle,
   // but cannot open a model request even if a developer has live credentials.
   if (config.rejectRequests !== false) ctx.on('agent/pre-step', async () => ({ kind: 'reject' }))

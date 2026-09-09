@@ -54,7 +54,7 @@ async function harness(inheritedTools = false, persistent = false): Promise<Cont
     await mkdir(path, { recursive: true })
     await writeFile(join(path, COMPOSITION_FILE), JSON.stringify([
       persistent
-        ? { id: 'persona', name: 'cordis:real-persona', config: { text: `Offline qualification role: ${preset}.` } }
+        ? { id: 'persona', name: 'cordis:real-persona', config: { prefix: `Offline qualification role: ${preset}.` } }
         : { id: 'persona', name: 'cordis:fixture-persona', config: { preset, inheritedTools } },
     ]))
   }
@@ -117,13 +117,13 @@ it.each(children)('creates and adopts %s as an ordinary Session with a real moun
   await execute(host, { workspaces }, accepted)
   const agent = await agentFor(host, accepted.dshSessionId)
   await vi.waitFor(() => {
-    expect(agent.session.events.some(event => event.type === 'turn/end')).toBe(true)
+    expect(agent.session.snapshotEvents().some(event => event.type === 'turn/end')).toBe(true)
   })
   expect(agent.session).toBe(host.sessions.get(SessionId(accepted.dshSessionId)))
   expect(agent.session.header).toMatchObject({ id: accepted.dshSessionId, cwd: directory, agentPreset: preset })
   expect(agent.session.header.origin).not.toBe('subagent')
   expect(agent.session.header.parentSession).toBeUndefined()
-  expect(agent.session.events.some(event => event.type === 'request/header')).toBe(false)
+  expect(agent.session.snapshotEvents().some(event => event.type === 'request/header')).toBe(false)
   const prompt = await host.systemPrompt.assemble(assembleContextFor(agent))
   expect(prompt.sections).toContainEqual({
     name: 'fixture-persona:' + preset, text: 'Fixture persona for ' + preset + '. Follow only this role.',
@@ -153,14 +153,15 @@ it('persists ordinary child requests and lists and resumes them from a fresh Loa
     await execute(host, { workspaces }, input)
     const agent = await agentFor(host, input.dshSessionId)
     await agent.whenIdle()
-    expect(agent.session.events.some(event => event.type === 'request/header')).toBe(true)
-    expect(agent.session.events.some(event => event.type === 'assistant/message')).toBe(true)
-    expect(agent.session.events.filter(event => event.type === 'turn/end')).toHaveLength(1)
+    const events = agent.session.snapshotEvents()
+    expect(events.some(event => event.type === 'request/header')).toBe(true)
+    expect(events.some(event => event.type === 'assistant/message')).toBe(true)
+    expect(events.filter(event => event.type === 'turn/end')).toHaveLength(1)
     const request = model.requests.find(candidate => candidate.sessionId === agent.id)!
-    expect(request.system).toContain('Offline qualification role: ' + input.agentPreset)
+    expect(JSON.stringify(request.messages)).toContain('Offline qualification role: ' + input.agentPreset)
     expect(request.tools?.map(tool => tool.name).sort()).toEqual(['ira_child_report', 'ira_context'])
     expect(JSON.stringify(request.messages)).toContain(input.text)
-    const logged = JSON.stringify(agent.session.events)
+    const logged = JSON.stringify(events)
     expect(logged).toContain('Offline qualification role: ' + input.agentPreset)
     expect(logged).not.toContain(input.sessionCapability)
     expect(logged).not.toContain(input.hubMcpUrl)
@@ -191,8 +192,6 @@ it('persists ordinary child requests and lists and resumes them from a fresh Loa
     expect(persisted.meta.parentSession).toBeUndefined()
     expect(JSON.stringify(persisted.events)).toContain(input.text)
     expect(JSON.stringify(persisted.events)).toContain('Offline qualification complete.')
-    const raw = await cold.get('sessionPersistence')!.readRaw(id)
-    expect(raw?.content).toContain(input.text)
   }
   // Listing and inspection are cold reads, not hidden Agent activations.
   expect(cold.sessions.list()).toHaveLength(0)
