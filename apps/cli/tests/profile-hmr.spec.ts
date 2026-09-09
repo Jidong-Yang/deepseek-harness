@@ -1,9 +1,11 @@
 /** Module-HMR ownership across the real shipped profile bundle layers. */
 
+import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { composeEntries, loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
+import { evaluate } from '@deepseek-ai/cordis-plugin-loader'
 import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 
 const REPOSITORY_ROOT = fileURLToPath(new URL('../../../', import.meta.url))
@@ -21,7 +23,7 @@ function hmr(layers: PatchOptions[][]) {
 }
 
 describe('profile module-HMR policy', () => {
-  it.each(['web-app', 'headless', 'sdk-app', 'acp-app'] as const)(
+  it.each(['headless', 'sdk-app', 'acp-app'] as const)(
     '%s inherits the disabled base row without a mode override',
     (mode) => {
       const modePatches = bundle(mode)
@@ -32,6 +34,21 @@ describe('profile module-HMR policy', () => {
       })
     },
   )
+
+  it('enables Web module HMR only for the resolved IRA Provider entry', () => {
+    const row = hmr([bundle('base'), bundle('web-app')])
+    expect(row).toMatchObject({
+      disabled: false,
+      config: {
+        ignored: ['**/.*', 'cache', 'data'],
+      },
+    })
+    const expression = (row.config as { root: { __jsExpr: string } }).root.__jsExpr
+    expect(expression).toContain("resolve('@deepseek-ai/dsh-ira-provider')")
+    const baseUrl = new URL('../src/profile-boot.ts', import.meta.url).href
+    expect(evaluate({ baseUrl }, expression))
+      .toEqual([createRequire(baseUrl).resolve('@deepseek-ai/dsh-ira-provider')])
+  })
 
   it('requires an explicit later layer to enable source-module reload', () => {
     expect(hmr([bundle('base'), [{ id: 'hmr', disabled: false }]])).toMatchObject({

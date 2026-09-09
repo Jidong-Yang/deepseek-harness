@@ -32,7 +32,7 @@ Profile manifest 负责 patch 重载：
 | `sdk-minimal` | `startup` |
 | `acp` | `startup` |
 
-自定义 profile 默认为 `live`。`startup` profile 仍会应用组合包、profile、home 级与调用时 `--patch` 各层，但启动后不会监视这些文件。`dsh-base` 插入的模块 HMR（热模块替换）配置项默认禁用；具有经过验证的源码模块重载生命周期的 profile 必须显式启用它。随附 profile 均不启用服务器模块 HMR：`patchReload: live` 使用启动器的仅配置 watcher，`startup` profile 则不安装 watcher。SDK 与 ACP 无法在一个自有 stdio 连接内安全替换其服务器、agent、持久化或工具注册表。
+自定义 profile 默认为 `live`。`startup` profile 仍会应用组合包、profile、home 级与调用时 `--patch` 各层，但启动后不会监视这些文件。`dsh-base` 插入的模块 HMR（热模块替换）配置项默认禁用；具有经过验证的源码模块重载生命周期的 profile 必须显式启用它。Web 组合包只为运行中模块 resolver 解析出的 IRA Provider 入口启用模块 HMR，watcher 不会扫描 checkout 或整个 `node_modules`。源码启动可能解析到 TypeScript 入口，已安装 profile 通常解析到构建入口。`startup` profile 不安装 watcher。SDK 与 ACP 无法在一个自有 stdio 连接内安全替换其服务器、agent、持久化或工具注册表。
 
 随附协议 profile 将 stdout 保留给协议帧，显示帮助时不启动 transport，并通过有界根节点 dispose（资源释放）处理 stdin EOF 与信号。ACP 继续仅用于自动化。SDK JSON-RPC 方法、通知字段与 `initialize.serverInfo.name` 保持稳定。完整 profile 的模型可见工具与持久化默认值来自 `dsh-base`，包括其[默认编辑器选择](../simplification/2026-09-05-base-default-file-editor.zh.md)；`sdk-minimal` 拥有自己的显式默认值。可运行快照负责固定已组装的应用输出。
 
@@ -81,7 +81,7 @@ Python 运行时 wheel 将 [`python/sdk-runtime/runtime-bootstrap.mjs`](../../..
 ## 验证
 
 - 源码与构建后 CLI 验收覆盖 `sdk`、`sdk-minimal` 和 `acp` 的帮助、transport 启动、stdout 纯净性、EOF、信号与根节点 dispose。
-- 组合包配置测试钉住 `dsh-base` 默认禁用模块 HMR，随附模式覆盖层不含该策略；自定义 live profile 的 e2e 钉住启动器仅监视 fallback 提供的配置重载。
+- 组合包配置测试钉住 `dsh-base` 默认禁用模块 HMR、Web 只为解析出的 IRA Provider 入口启用它，且 startup profile 覆盖层不包含该策略；自定义 live profile 的 e2e 钉住启动器仅监视 fallback 提供的配置重载。
 - 聚焦单元套件覆盖 profile 启动解析、初始化时限、SDK 重试、服务器就绪和嵌套隔离 home，并对变更后的运行时源码实现 100% 覆盖率。
 - 免密钥 ACP 与 SDK 快照启动真实 `dsh` profile，并钉住协议输出与持久化日志；嵌套 SDK 组合会启动第二个真实 profile 运行时。
 - 真实 API 工作流把文件并行度限制为 4，因为一个 profile e2e 文件可能拥有多个完整 `dsh` 子进程树；工作流测试会钉住该资源上限。
@@ -91,6 +91,7 @@ Python 运行时 wheel 将 [`python/sdk-runtime/runtime-bootstrap.mjs`](../../..
 ## 影响
 
 - 用户通过具名 profile 与有序 patch 更改 SDK 应用的插件组合，使用与其他所有 dsh 应用相同的安装与解析模型。
+- Web 会为新一代插件处理的命令重载发生变化的 IRA Provider 入口；存活 Agent 保留上一代的 scoped 工具，执行中的命令没有恰好一次交接。
 - 自定义 profile 可以在不启用服务器模块 HMR 的情况下获得实时配置监视，只有显式覆盖配置项才会启用源码模块替换。
 - 完整 SDK 与 ACP profile 共享完整 base 应用和同一份策略与工具；`sdk-minimal` 拥有自己的显式独立清单，快照会呈现这些刻意采用的组装差异。
 - 增加 `@deepseek-ai/dsh` 会扩大 TypeScript 客户端的安装体积，换来确定的同版本运行时。

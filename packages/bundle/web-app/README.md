@@ -61,6 +61,12 @@ When you launch `dsh --profile web` over SSH, the URL line still prints but the 
 
 Each browser session composes its own agent from the shipped presets (the `standard` preset by default), instead of sharing one process-wide tool set. You can change the default preset or add your own presets under `$DSH_HOME/.agent-presets`.
 
+### Reloading IRA Provider code
+
+The Web profile enables backend module HMR for `@deepseek-ai/dsh-ira-provider`. It watches the exact entry resolved by the running Loader instead of scanning all of `node_modules` or the Harness checkout. A source launch can resolve `src/index.ts` through the tsx workspace mapping; an installed profile normally resolves `lib/index.js`, so TypeScript edits then require a build that rewrites that file. If the process resolver cannot find the package, the module-root list is empty and live patch-file reload remains available.
+
+A successful reload replaces the root Provider plugin and reconnects its Hub socket. Commands handled by the new generation use the rebuilt code, so newly created Sessions and cold-resumed Sessions receive the new behavior. Already-live Agents retain tool registrations and closures installed by the previous generation. Reload also interrupts the socket and does not provide an exactly-once boundary for commands already in flight; use a process restart when deployment continuity or existing-session replacement matters.
+
 -----
 
 <a id="understand-the-implementation"></a>
@@ -69,7 +75,7 @@ Each browser session composes its own agent from the shipped presets (the `stand
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-The bundle is one patch plus one runtime glue plugin. The storage stack and projection cache come from `dsh-base`; the web overlay's workspace and message-feedback rows consume that shared `storageDomain` service. The patch restates the surface-specific values the base deliberately omits, inserts the web-only host rows and browser roster, then moves the agent plane behind presets. The glue plugin owns dist serving, trust sampling, prompt sections, the bash variable, and the readiness announcements.
+The bundle is one patch plus one runtime glue plugin. The storage stack and projection cache come from `dsh-base`; the web overlay's workspace and message-feedback rows consume that shared `storageDomain` service. The patch restates the surface-specific values the base deliberately omits, enables HMR for the resolved IRA Provider entry, inserts the web-only host rows and browser roster, then moves the agent plane behind presets. The glue plugin owns dist serving, trust sampling, prompt sections, the bash variable, and the readiness announcements.
 
 ### Patch semantics
 
@@ -89,7 +95,7 @@ The URL line and browser handoff are readiness signals: supervisors RPC as soon 
 |---|---|
 | [`src/index.ts`](src/index.ts) | The `web-app` glue plugin: dist resolution, LAN trust sampling, prompt sections, bash variable, URL line, browser handoff |
 | [`src/startup.ts`](src/startup.ts) | The `web-startup` provider: `--host`, `--port`, `--trusted-host`, `--no-open`, `--help` |
-| [`cordis.patch.yml`](cordis.patch.yml) | The web patch: restated base values, web host rows, browser roster, agent plane behind presets |
+| [`cordis.patch.yml`](cordis.patch.yml) | The Web patch: IRA Provider HMR, restated base values, host rows, browser roster, agent plane behind presets |
 | — | No runtime invariant companion is published; every contribution (frontend-static child plugin, prompt section, bashEnv registration) is registry-disposed with the fiber, and each owning registry's package carries that relation's invariant; the package holds no mutable state of its own to audit. |
 | [`tests/web-app.spec.ts`](tests/web-app.spec.ts) | Dist resolution, fallback seat, prompt sections, readiness |
 | [`tests/startup.spec.ts`](tests/startup.spec.ts) | Command-line parsing over a real Loader tree |

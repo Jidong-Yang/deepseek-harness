@@ -32,7 +32,7 @@ Profile manifests own patch reload:
 | `sdk-minimal` | `startup` |
 | `acp` | `startup` |
 
-Custom profiles default to `live`. A startup profile still applies its bundle, profile, home-level, and invocation `--patch` layers, but it does not watch them after boot. `dsh-base` inserts the module-HMR row disabled; a profile with a tested source-module reload lifecycle must enable it explicitly. None of the shipped profiles enable server module HMR: `patchReload: live` uses the launcher's config-only watcher while the startup profiles install no watcher. SDK and ACP cannot safely replace their server, agents, persistence, or tool registry inside one owned stdio connection.
+Custom profiles default to `live`. A startup profile still applies its bundle, profile, home-level, and invocation `--patch` layers, but it does not watch them after boot. `dsh-base` inserts the module-HMR row disabled; a profile with a tested source-module reload lifecycle must enable it explicitly. The Web bundle enables module HMR only for the IRA Provider entry resolved by the running module resolver; the watcher does not scan the checkout or all of `node_modules`. Source launch may resolve the TypeScript entry, while an installed profile normally resolves the built entry. The startup profiles install no watcher. SDK and ACP cannot safely replace their server, agents, persistence, or tool registry inside one owned stdio connection.
 
 The shipped protocol profiles reserve stdout for protocol frames, expose help without starting transport, and route stdin EOF and signals through bounded root disposal. ACP remains automation-only. The SDK JSON-RPC methods, notification fields, and `initialize.serverInfo.name` remain stable. Full-profile model-visible tool and persistence defaults come from `dsh-base`, including its [default editor selection](../simplification/2026-09-05-base-default-file-editor.md); `sdk-minimal` owns its explicit defaults. Runnable snapshots own the assembled application outputs.
 
@@ -81,7 +81,7 @@ The [ACP automation-only protocol](../simplification/2026-07-23-acp-automation-o
 ## Verification
 
 - Source and built CLI acceptance cover `sdk`, `sdk-minimal`, and `acp` help, transport startup, stdout purity, EOF, signals, and root disposal.
-- Bundle configuration tests pin module HMR disabled in `dsh-base` and absent from shipped mode overrides; the custom live-profile e2e pins config reload through the launcher's watch-only fallback.
+- Bundle configuration tests pin module HMR disabled in `dsh-base`, enabled by Web only for the resolved IRA Provider entry, and absent from startup-profile overrides; the custom live-profile e2e pins config reload through the launcher's watch-only fallback.
 - Focused unit suites cover profile launch resolution, initialization bounds, SDK retries, server readiness, and nested isolated homes with 100% coverage on the changed runtime sources.
 - Keyless ACP and SDK snapshots boot real `dsh` profiles and pin protocol output plus persisted logs; the nested SDK composition boots a second real profile runtime.
 - The real-API workflow caps file parallelism at four because one profile e2e file can own several complete `dsh` subprocess trees; workflow tests pin that resource bound.
@@ -91,6 +91,7 @@ The [ACP automation-only protocol](../simplification/2026-07-23-acp-automation-o
 ## Consequences
 
 - A user changes an SDK application's plugin composition through a named profile and ordered patches, using the same installation and resolution model as every other dsh application.
+- Web reloads a changed IRA Provider entry for commands handled by the new plugin generation; live Agents retain the previous generation's scoped tools and in-flight commands have no exactly-once handoff.
 - A custom profile receives live config watching without server module HMR and opts into source-module replacement only through an explicit row override.
 - The full SDK and ACP profiles share the complete base application and one set of policy and tools; `sdk-minimal` owns its explicit standalone roster, and snapshots present intentional assembled differences.
 - Adding `@deepseek-ai/dsh` increases the TypeScript client's install size in exchange for a deterministic same-version runtime.

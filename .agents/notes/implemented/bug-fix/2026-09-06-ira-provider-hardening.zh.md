@@ -28,4 +28,4 @@ Lockfile 保留合并前的外部包 resolution 和 peer context。本次修复�
 
 Focused tests 使用真实 ToolRuntime 验证晚注册工具的拒绝行为，并用本地 WebSocket server 验证无效帧后的恢复。包内 Loader composition 验证实际插件挂载。测试不需要生产 Hub、模型请求或 Teams thread。
 
-跨 Host 的投递去重仍未解决。[Inbox](../../../../packages/core/agent/src/inbox.ts) 记录插入身份，但仅拒绝仍在等待的重复身份。[Agent loop](../../../../packages/core/agent-loop/src/agent.ts) 在异步 prompt assembly 和后续 user/message 接收之前移除已领取的输入。[Session store](../../../../packages/core/session/src/index.ts) 提供可等待的 flush，而非原子命令执行事务。Cancel 也没有持久化命令身份。在用历史收据替换 Provider 的进程内去重前，必须明确恢复和取消语义。
+跨 Host 的投递去重仍未解决。[Inbox 接口](../../../../packages/core/agent/src/runtime-types.ts) 记录插入身份，但仅拒绝仍在等待的重复身份。[Agent loop](../../../../packages/core/agent-loop/src/agent.ts) 在异步 prompt assembly 和后续 user/message 接收之前移除已领取的输入。[Session store](../../../../packages/core/session/src/index.ts) 提供可等待的 flush，而非原子命令执行事务。Cancel 也没有持久化命令身份。在用历史收据替换 Provider 的进程内去重前，必须明确恢复和取消语义。

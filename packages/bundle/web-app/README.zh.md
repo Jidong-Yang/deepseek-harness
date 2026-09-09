@@ -61,6 +61,12 @@ dsh --profile web --no-open --port 8080
 
 每个浏览器会话都从随发行版交付的 preset（默认 `standard`）组合自己的 agent（智能体），而不是共享一套进程级工具集。你可以更改默认 preset，或在 `$DSH_HOME/.agent-presets` 下添加自己的 preset。
 
+### 重载 IRA Provider 代码
+
+Web profile 会为 `@deepseek-ai/dsh-ira-provider` 启用后端模块 HMR。它监视运行中 Loader 实际解析出的入口，不会扫描整个 `node_modules` 或 Harness checkout。源码启动可以通过 tsx workspace 映射解析到 `src/index.ts`；已安装 profile 通常解析到 `lib/index.js`，此时 TypeScript 修改必须先经过构建并重写该文件。如果进程 resolver 找不到这个包，模块监视根列表为空，patch 文件的实时重载仍然可用。
+
+成功重载会替换根 Provider 插件并重新连接 Hub socket。由新一代插件处理的命令会使用重新构建的代码，因此新建 Session 与冷恢复 Session 会获得新行为。已经存活的 Agent 会保留上一代安装的工具注册与闭包。重载还会中断 socket，且不会为已在执行的命令提供恰好一次边界；当部署连续性或替换现有 Session 很重要时，请重启进程。
+
 -----
 
 <a id="understand-the-implementation"></a>
@@ -69,7 +75,7 @@ dsh --profile web --no-open --port 8080
 <details>
 <summary>实现细节——点击展开</summary>
 
-本组合包是一份 patch 加一个运行时粘合插件。patch 重述 base 刻意省略的表层专属值，插入仅 Web 使用的宿主行与浏览器名录，然后把 agent 层移到 preset 之后；粘合插件负责 dist 服务、信任采样、提示词段落、bash 变量与就绪宣告。
+本组合包是一份 patch 加一个运行时粘合插件。patch 重述 base 刻意省略的表层专属值，为解析出的 IRA Provider 入口启用 HMR，插入仅 Web 使用的宿主行与浏览器名录，然后把 agent 层移到 preset 之后；粘合插件负责 dist 服务、信任采样、提示词段落、bash 变量与就绪宣告。
 
 ### patch 语义
 
@@ -89,7 +95,7 @@ URL 行与浏览器交接都是就绪信号：监督方一观察到该行就发�
 |---|---|
 | [`src/index.ts`](src/index.ts) | `web-app` 粘合插件：dist 解析、LAN 信任采样、提示词段落、bash 变量、URL 行、浏览器交接 |
 | [`src/startup.ts`](src/startup.ts) | `web-startup` 提供方：`--host`、`--port`、`--trusted-host`、`--no-open`、`--help` |
-| [`cordis.patch.yml`](cordis.patch.yml) | Web patch：重述的基础值、Web 宿主行、浏览器名录、preset 之后的 agent 层 |
+| [`cordis.patch.yml`](cordis.patch.yml) | Web patch：IRA Provider HMR、重述的基础值、宿主行、浏览器名录、preset 之后的 agent 层 |
 | — | 不发布运行时不变式伴生入口；本包只持有静态 contribution 列表，每项 contribution 都由其 registry 释放。 |
 | [`tests/web-app.spec.ts`](tests/web-app.spec.ts) | dist 解析、fallback 席位、提示词段落、就绪宣告 |
 | [`tests/startup.spec.ts`](tests/startup.spec.ts) | 在真实 Loader 树上的命令行解析 |
