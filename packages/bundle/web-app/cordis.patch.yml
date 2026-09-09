@@ -13,6 +13,16 @@
 
 # ── surface-specific values the base deliberately omits ─────────────────────
 
+# Backend module HMR is Web-only and watches the IRA Provider entry resolved
+# by the same process module resolver. Source launch can resolve src/index.ts;
+# an installed profile normally resolves lib/index.js and needs a rebuild.
+- id: hmr
+  disabled: false
+  config:
+    root: !!js >-
+      (() => { try { return [process.getBuiltinModule('module').createRequire(ctx.baseUrl).resolve('@deepseek-ai/dsh-ira-provider')] } catch { return [] } })()
+    ignored: ['**/.*', 'cache', 'data']
+
 - id: system-prompt
   config:
     personaSuffix: Your working directory is {{cwd}}.
