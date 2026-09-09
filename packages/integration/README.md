@@ -22,7 +22,7 @@ Integration packages connect external control planes to DSH-owned Sessions. They
 <a id="packages"></a>
 ## Packages
 
-- [IRA Provider](ira-provider/README.md) connects IRA Hub commands to the local Web Host and scopes its MCP tool access.
+IRA Provider is owned and deployed by the separate ira-agent-platform repository. The profile loader accepts it as an external package under the @deepseek-ai/dsh-ira-provider identity.
 
 <a id="related-documentation"></a>
 ## Related documentation

@@ -10,7 +10,7 @@
 
 ## 决策
 
-[IRA Provider](../../../../packages/integration/ira-provider/src/index.ts) 必须具备 AgentPresets，并复用普通 SessionController 创建和 steer 路径。它上报已安装且健康的受支持 ID，在 open 前验证目标 preset，在安装角色工具或 steer/cancel 前核对实际 composition。缺失角色不会回退。
+[IRA Provider](https://github.com/Jidong-Yang/deepseek-harness/blob/b5a32b12c6bf0dea4d1c26ef1f3db50172e1343d/packages/integration/ira-provider/src/index.ts) 必须具备 AgentPresets，并复用普通 SessionController 创建和 steer 路径。它上报已安装且健康的受支持 ID，在 open 前验证目标 preset，在安装角色工具或 steer/cancel 前核对实际 composition。缺失角色不会回退。
 
 Supervisor 获得 Hub child-task 工具。Worker 和 Validator 只有自身 context/report Hub 工具，不获得父 capability 或 settlement 工具。正式 Supervisor 委派和 child 递归不能走继承的原生 subagent/workflow 工具。Scoped restriction 与 guard 覆盖晚注册和同 scope shadow；这不是 OS sandbox。KB 拥有专业角色，Platform 拥有薄执行绑定和父子关系。
 

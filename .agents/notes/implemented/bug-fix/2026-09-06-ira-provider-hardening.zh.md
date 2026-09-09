@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-[Provider](../../../../packages/integration/ira-provider/src/index.ts) 在创建或 steer Session 之前验证命令。无效网络帧以协议错误关闭连接；socket 错误结束当前连接，由连接循环负责重试。断连释放 heartbeat 和 abort 监听器。响应发送会限制传输错误，不产生游离的 rejected Promise。
+[Provider](https://github.com/Jidong-Yang/deepseek-harness/blob/b5a32b12c6bf0dea4d1c26ef1f3db50172e1343d/packages/integration/ira-provider/src/index.ts) 在创建或 steer Session 之前验证命令。无效网络帧以协议错误关闭连接；socket 错误结束当前连接，由连接循环负责重试。断连释放 heartbeat 和 abort 监听器。响应发送会限制传输错误，不产生游离的 rejected Promise。
 
 Agent-scoped restriction 监听现有未按 scope 过滤的 tools/change 通知，执行 guard 在分派时应用同一判断。注册表与 Agent scope 拥有这些 effect；不引入共享 MCP broker、新的工具过滤 API 或额外恢复服务。
 

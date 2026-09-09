@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-07-ira-child-session-bindings.md
-2026-09-07-ira-child-session-bindings.md: 2c0da477bb487c3c3918c983d202da2d930476f2
-2026-09-07-ira-child-session-bindings.zh.md: f9b3e5f799bc5dd9dda70778e7212cef82d215c1
+2026-09-07-ira-child-session-bindings.md: 2240207740439806b455acc08330275fee9ba0ff
+2026-09-07-ira-child-session-bindings.zh.md: 60c4e9be0be4dcc45b77fe6271259ede8bc5425d

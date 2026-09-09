@@ -22,7 +22,7 @@ Integration 包将外部控制平面连接到 DSH 拥有的 Session，复用现�
 <a id="packages"></a>
 ## 包
 
-- [IRA Provider](ira-provider/README.zh.md) 将 IRA Hub 命令连接到本地 Web Host，并限制对应的 MCP 工具访问。
+IRA Provider 由独立的 ira-agent-platform 仓库维护和部署。profile loader 以 @deepseek-ai/dsh-ira-provider 标识加载这个外部包。
 
 <a id="related-documentation"></a>
 ## 相关文档

@@ -10,7 +10,7 @@ Native subagent composition inherits its parent preset. That cannot represent a 
 
 ## Decision
 
-The [IRA Provider](../../../../packages/integration/ira-provider/src/index.ts) requires AgentPresets and uses the existing ordinary SessionController creation and steering path. It advertises healthy installed supported IDs, validates the requested preset before open, and checks actual composition before role tools are installed or a Session is steered/cancelled. Missing roles do not fall back.
+The [IRA Provider](https://github.com/Jidong-Yang/deepseek-harness/blob/b5a32b12c6bf0dea4d1c26ef1f3db50172e1343d/packages/integration/ira-provider/src/index.ts) requires AgentPresets and uses the existing ordinary SessionController creation and steering path. It advertises healthy installed supported IDs, validates the requested preset before open, and checks actual composition before role tools are installed or a Session is steered/cancelled. Missing roles do not fall back.
 
 Supervisor receives the Hub child-task tool. Worker and Validator receive only their own context/report Hub tools, not parent capabilities or settlement tools. Formal Supervisor delegation and child recursion cannot use inherited native subagent/workflow tools. Scoped restriction plus guard covers late registration and same-scope shadows; this is not an OS sandbox. KB owns role expertise and Platform owns thin execution bindings and the parent relationship.
 
